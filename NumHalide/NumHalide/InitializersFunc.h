@@ -15,7 +15,7 @@ Func	linspace( Type type, Expr _start, Expr _stop, Int32 num = 50, Bool endpoint
 
 	NH_ASSERT(num >= 0);
 
-	require(start < stop, {start, stop});
+	//require(start < stop, {start, stop});
 
 	if ( num == 0 )
 	{
@@ -156,6 +156,17 @@ Func	full( Type type, Expr value, std::vector<Int32> const& sizes )
 }
 
 inline
+Func	empty( Type type, std::vector<Int32> const& sizes )
+{
+	Func ret;
+	std::vector<Var> vars{sizes.size()};
+
+	ret(vars) = undef( Type() );
+
+	return ret;
+}
+
+inline
 Func	ones( Type type, Int32 const size )
 {
 	return full(type, 1, size);
@@ -200,6 +211,32 @@ Func	identity(Type type, Int32 const side)
 
 	ret(x, y) = cast(type, 0);
 	ret(x, x) = cast(type, 1);
+
+	return ret;
+}
+
+inline
+Func	diag(Type type, Func values, Int32 const side/*, Int32 const k = 0*/)
+{
+	Func ret;
+	Var x;
+	Var y;
+
+	ret(x, y) = cast(type, 0);
+	ret(x, x) = cast(type, values(x));
+
+	return ret;
+}
+
+inline
+Func	diag(Type type, Buffer<> const& values, Int32 const side/*, Int32 const k = 0*/)
+{
+	Func ret;
+	Var x;
+	Var y;
+
+	ret(x, y) = cast(type, 0);
+	ret(x, x) = cast(type, values(x));
 
 	return ret;
 }

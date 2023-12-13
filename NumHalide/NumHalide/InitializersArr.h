@@ -151,6 +151,13 @@ Buffer<ValueType>	full( Type const type, ValueType const value, std::vector<Int3
 
 template < typename ValueType >
 inline
+Buffer<ValueType>	empty( Type const type, std::vector<Int32> const& sizes )
+{
+	return Buffer< ValueType >( type, sizes );
+}
+
+template < typename ValueType >
+inline
 Buffer<ValueType>	ones( Type const type, Int32 const size )
 {
 	return full(type, 1, size);
@@ -193,13 +200,41 @@ Buffer<ValueType>	zeros( Type const type, std::vector<Int32> const& sizes )
 
 template < typename ValueType >
 inline
-Buffer<ValueType>	identity(Type const type, Int32 const side)
+Buffer<ValueType>	identity( Type const type, Int32 const side )
 {
-	Buffer<ValueType> ret = zeros<ValueType>(type, side, side);
+	Buffer<ValueType> ret = zeros<ValueType>( type, side, side );
 
 	for ( Int32 i = 0; i < side; ++i )
 	{
 		ret(i, i) = 1;
+	}
+
+	return ret;
+}
+
+template < typename ValueType >
+inline
+Buffer<ValueType>	diag( Type const type, Buffer<ValueType> const& values, Int32 const side )
+{
+	Buffer<ValueType> ret = zeros<ValueType>( type, side, side );
+
+	for ( Int32 i = 0; i < side; ++i )
+	{
+		ret(i, i) = values(i);
+	}
+
+	return ret;
+}
+
+template < typename ValueType >
+inline
+Buffer<ValueType>	diag( Type const type, Buffer<ValueType> const& values, Int32 const side, Int32 const k = 0 )
+{
+	Buffer<ValueType> ret = zeros<ValueType>( type, side, side );
+
+	for ( Int32 i = 0; i < side; ++i )
+	{
+		ret(i + k, i + k) = values(i);
 	}
 
 	return ret;
