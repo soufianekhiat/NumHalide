@@ -4,10 +4,10 @@
 
 NS_NUM_HALIDE_BEGIN
 
-template < typename Type >
+template < typename Type, typename SizeType >
 inline
 Type	args_to_index(	std::vector< Type > const& aArgs,
-						std::vector< Type > const& aSizes )
+						std::vector< SizeType > const& aSizes )
 {
 	NH_ASSERT( aArgs.size() == aSizes.size() );
 
@@ -31,11 +31,11 @@ Type	args_to_index(	std::vector< Type > const& aArgs,
 	}
 }
 
-template < typename Type >
+template < typename Type, typename IndexType >
 inline
 void	index_to_args(	std::vector< Type >&		aArgs,
-						Type const					iIndex,
-						std::vector< int > const&	aSizes )
+						IndexType const				iIndex,
+						std::vector< Type > const&	aSizes )
 {
 	aArgs.clear();
 

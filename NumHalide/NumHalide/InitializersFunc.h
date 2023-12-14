@@ -4,27 +4,44 @@
 
 NS_NUM_HALIDE_FUNC_BEGIN
 
-inline
-Func	linspace( Type type, Expr _start, Expr _stop, Int32 num = 50, Bool endpoint = true, Int32 axis = 0 )
+template < typename ValueType >
+bool is_const_value(Expr x, ValueType v)
 {
-	Func ret;
+	if (int64_t const* pValue = as_const_int(x))
+	{
+		return static_cast<ValueType>(*pValue) == v;
+	}
+	else if (uint64_t const* pValue = as_const_uint(x))
+	{
+		return static_cast<ValueType>(*pValue) == v;
+	}
+	else if (f64 const* pValue = as_const_float(x))
+	{
+		return static_cast<ValueType>(*pValue) == v;
+	}
+	return is_const(x, static_cast<Int64>(v));
+}
+
+inline
+Func	linspace( Type type, Expr _start, Expr _stop, Expr num = 50, std::string const& name = "linspace", Bool endpoint = true, Int32 axis = 0)
+{
+	Func ret(name);
 	Var x;
 
 	Expr start = cast(type, _start);
 	Expr stop = cast(type, _stop);
 
-	NH_ASSERT(num >= 0);
+	require(start < stop, {start, stop});
+	require(num > 0, { num });
 
-	//require(start < stop, {start, stop});
-
-	if ( num == 0 )
+	if ( is_const_zero(num) )
 	{
 		ret(x) = Internal::make_const( type, 0 );
 
 		ret.bound_storage(x, 1);
 	}
 
-	if ( num == 1 )
+	if ( is_const_one(num) )
 	{
 		Func ret;
 
@@ -34,7 +51,7 @@ Func	linspace( Type type, Expr _start, Expr _stop, Int32 num = 50, Bool endpoint
 
 	if ( endpoint )
 	{
-		if ( num == 2 )
+		if (is_const_value(num, 2))
 		{
 			Func ret;
 			ret(x) = mux(x, { start, stop });
@@ -43,7 +60,7 @@ Func	linspace( Type type, Expr _start, Expr _stop, Int32 num = 50, Bool endpoint
 		}
 		else
 		{
-			Expr step = ( stop - start ) / Internal::make_const( type, num - 1 );
+			Expr step = ( stop - start ) / cast( type, num - 1 );
 
 			ret(x) = start + cast(type, x) * step;
 			ret.specialize(start < stop);
@@ -52,16 +69,16 @@ Func	linspace( Type type, Expr _start, Expr _stop, Int32 num = 50, Bool endpoint
 	}
 	else
 	{
-		if ( num == 2 )
+		if (is_const_value(num, 2))
 		{
-			Expr	step = ( stop - start ) / Internal::make_const(type, num);
+			Expr step = ( stop - start ) / cast(type, num);
 			ret(x) = mux(x, { start, start + step });
 			ret.specialize(start < stop);
 			ret.bound_storage(x, 2);
 		}
 		else
 		{
-			Expr step = ( stop - start ) / Internal::make_const(type, num);
+			Expr step = ( stop - start ) / cast(type, num);
 
 			ret(x) = start + cast(type, x) * step;
 			ret.specialize(start < stop);
@@ -78,9 +95,9 @@ Func	linspace( Type type, Expr _start, Expr _stop, Int32 num = 50, Bool endpoint
 }
 
 inline
-Func	arange(Type type, Expr _stop)
+Func	arange(Type type, Expr _stop, std::string const& name = "arange")
 {
-	Func ret;
+	Func ret(name);
 	Var x;
 
 	Expr stop = cast(type, _stop);
@@ -95,9 +112,9 @@ Func	arange(Type type, Expr _stop)
 }
 
 inline
-Func	arange(Type type, Expr _start, Expr _stop, Expr _step = 1)
+Func	arange(Type type, Expr _start, Expr _stop, Expr _step = 1, std::string const& name = "arange")
 {
-	Func ret;
+	Func ret(name);
 	Var x;
 
 	Expr start = cast(type, _start);
@@ -122,33 +139,11 @@ Func	arange(Type type, Expr _start, Expr _stop, Expr _step = 1)
 }
 
 inline
-Func	full( Type type, Expr value, Int32 const size )
+Func	full( Type type, Expr value, Int32 dim, std::string const& name = "full")
 {
-	Func ret;
-	Var x;
-
-	ret(x) = cast(type, value);
-
-	return ret;
-}
-
-inline
-Func	full( Type type, Expr value, Int32 const rows, Int32 const cols )
-{
-	Func ret;
-	Var x;
-	Var y;
-
-	ret(x, y) = cast(type, value);
-
-	return ret;
-}
-
-inline
-Func	full( Type type, Expr value, std::vector<Int32> const& sizes )
-{
-	Func ret;
-	std::vector<Var> vars{sizes.size()};
+	Func ret(name);
+	std::vector<Var> vars;
+	vars.resize(dim);
 
 	ret(vars) = cast(type, value);
 
@@ -156,89 +151,106 @@ Func	full( Type type, Expr value, std::vector<Int32> const& sizes )
 }
 
 inline
-Func	empty( Type type, std::vector<Int32> const& sizes )
+Func	empty( Type type, Int32 dim, std::string const& name = "empty")
 {
-	Func ret;
-	std::vector<Var> vars{sizes.size()};
+	Func ret(name);
+	std::vector<Var> vars;
+	vars.resize(dim);
 
-	ret(vars) = undef( Type() );
+	ret(vars) = undef(type);
 
 	return ret;
 }
 
 inline
-Func	ones( Type type, Int32 const size )
+Func	ones( Type type, Int32 const dim, std::string const& name = "one")
 {
-	return full(type, 1, size);
+	return full(type, 1, dim, name);
 }
 
 inline
-Func	ones( Type type, Int32 const rows, Int32 const cols )
+Func	zeros( Type type, Int32 const dim, std::string const& name = "zeros")
 {
-	return full(type, 1, rows, cols);
+	return full(type, 0, dim, name);
 }
 
 inline
-Func	ones( Type type, std::vector<Int32> const& sizes )
+Func	diag(Type type, Expr val, Int32 const dim, std::string const& name = "diag")
 {
-	return full(type, 1, sizes);
+	Func ret(name);
+	std::vector<Var> vars;
+	vars.resize(dim);
+
+	ret(vars) = cast(type, 0);
+	std::vector<Var> args(dim, vars[0]);
+	ret(args) = cast(type, val);
+
+	return ret;
 }
 
 inline
-Func	zeros( Type type, Int32 const size )
+Func	diag(Type type, Func values, Expr const k = 0, std::string const& name = "diag")
 {
-	return full(type, 0, size);
-}
-
-inline
-Func	zeros( Type type, Int32 const rows, Int32 const cols )
-{
-	return full(type, 0, rows, cols);
-}
-
-inline
-Func	zeros( Type type, std::vector<Int32> const& sizes )
-{
-	return full(type, 0, sizes);
-}
-
-inline
-Func	identity(Type type, Int32 const side)
-{
-	Func ret;
+	Func ret(name);
 	Var x;
 	Var y;
 
-	ret(x, y) = cast(type, 0);
-	ret(x, x) = cast(type, 1);
+	if (is_const_zero(k))
+	{
+		ret(x, y) = cast(type, 0);
+		ret(x, x) = cast(type, values(x));
+	}
+	else
+	{
+		ret(x, y) = select(x - k == y, cast(type, values(x)), cast(type, 0));
+	}
 
 	return ret;
 }
 
 inline
-Func	diag(Type type, Func values, Int32 const side/*, Int32 const k = 0*/)
+Func	diag(Type type, Buffer<> const& values, Expr const k = 0, std::string const& name = "diag")
 {
-	Func ret;
+	Func ret(name);
 	Var x;
 	Var y;
 
-	ret(x, y) = cast(type, 0);
-	ret(x, x) = cast(type, values(x));
+	if (is_const_zero(k))
+	{
+		ret(x, y) = cast(type, 0);
+		ret(x, x) = cast(type, values(x));
+	}
+	else
+	{
+		ret(x, y) = select(x - k == y, cast(type, values(x)), cast(type, 0));
+	}
 
 	return ret;
 }
 
 inline
-Func	diag(Type type, Buffer<> const& values, Int32 const side/*, Int32 const k = 0*/)
+Func	identity(Type type, Int32 const dim, std::string const& name = "identity")
 {
-	Func ret;
-	Var x;
-	Var y;
+	return diag(type, 1, dim, name);
+}
 
-	ret(x, y) = cast(type, 0);
-	ret(x, x) = cast(type, values(x));
+inline
+std::vector<Func>	meshgrid(Type type, std::vector<Func> xis, std::string const& name = "meshgrid")
+{
+	Int32 rank = (Int32)xis.size();
 
-	return ret;
+	std::vector<Func> values;
+	values.reserve(rank);
+	for (Int32 k = 0; k < rank; ++k)
+	{
+		Func base = empty(type, rank, name + '_' + std::to_string(k));
+		std::vector<Var> const& vars = base.args();
+		base(vars) = xis[k](vars[k]);
+
+		values.push_back(base);
+	}
+
+	return values;
 }
 
 NS_NUM_HALIDE_FUNC_END

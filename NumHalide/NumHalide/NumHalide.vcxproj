@@ -146,6 +146,7 @@
     <ClInclude Include="Common.h" />
     <ClInclude Include="InitializersArr.h" />
     <ClInclude Include="InitializersFunc.h" />
+    <ClInclude Include="ManipulationFunc.h" />
     <ClInclude Include="NumHalide.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

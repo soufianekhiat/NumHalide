@@ -197,6 +197,23 @@
    FROM,OUT OF OR IN CONNECTION WITH THE MATERIALS OR THE USE OR OTHER DEALINGS
    IN THE MATERIALS.
    
+   
+   ----
+   
+   src/mini_vulkan.h is Copyright (c) 2014-2017 The Khronos Group Inc.
+   
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+   
+      http://www.apache.org/licenses/LICENSE-2.0
+   
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+   
    ----
    
    apps/linear_algebra/include/cblas.h is licensed under the BLAS license.
@@ -1613,7 +1630,7 @@ typedef enum halide_target_feature_t {
     halide_target_feature_cl_doubles,   ///< Enable double support on OpenCL targets
     halide_target_feature_cl_atomic64,  ///< Enable 64-bit atomics operations on OpenCL targets
 
-    halide_target_feature_openglcompute,  ///< Enable OpenGL Compute runtime.
+    halide_target_feature_openglcompute,  ///< Enable OpenGL Compute runtime. NOTE: This feature is deprecated and will be removed in Halide 17.
 
     halide_target_feature_user_context,  ///< Generated code takes a user_context pointer as first argument
 
@@ -1668,6 +1685,15 @@ typedef enum halide_target_feature_t {
     halide_target_feature_sanitizer_coverage,     ///< Enable hooks for SanitizerCoverage support.
     halide_target_feature_profile_by_timer,       ///< Alternative to halide_target_feature_profile using timer interrupt for systems without threads or applicartions that need to avoid them.
     halide_target_feature_spirv,                  ///< Enable SPIR-V code generation support.
+    halide_target_feature_vulkan,                 ///< Enable Vulkan runtime support.
+    halide_target_feature_vulkan_int8,            ///< Enable Vulkan 8-bit integer support.
+    halide_target_feature_vulkan_int16,           ///< Enable Vulkan 16-bit integer support.
+    halide_target_feature_vulkan_int64,           ///< Enable Vulkan 64-bit integer support.
+    halide_target_feature_vulkan_float16,         ///< Enable Vulkan 16-bit float support.
+    halide_target_feature_vulkan_float64,         ///< Enable Vulkan 64-bit float support.
+    halide_target_feature_vulkan_version10,       ///< Enable Vulkan v1.0 runtime target support.
+    halide_target_feature_vulkan_version12,       ///< Enable Vulkan v1.2 runtime target support.
+    halide_target_feature_vulkan_version13,       ///< Enable Vulkan v1.3 runtime target support.
     halide_target_feature_semihosting,            ///< Used together with Target::NoOS for the baremetal target built with semihosting library and run with semihosting mode where minimum I/O communication with a host PC is available.
     halide_target_feature_end                     ///< A sentinel. Every target is considered to have this feature, and setting this feature does nothing.
 } halide_target_feature_t;
@@ -4629,6 +4655,7 @@ enum class DeviceAPI {
     Hexagon,
     HexagonDma,
     D3D12Compute,
+    Vulkan,
     WebGPU,
 };
 
@@ -4644,6 +4671,7 @@ const DeviceAPI all_device_apis[] = {DeviceAPI::None,
                                      DeviceAPI::Hexagon,
                                      DeviceAPI::HexagonDma,
                                      DeviceAPI::D3D12Compute,
+                                     DeviceAPI::Vulkan,
                                      DeviceAPI::WebGPU};
 
 }  // namespace Halide
@@ -4745,7 +4773,7 @@ struct Target {
         CLDoubles = halide_target_feature_cl_doubles,
         CLHalf = halide_target_feature_cl_half,
         CLAtomics64 = halide_target_feature_cl_atomic64,
-        OpenGLCompute = halide_target_feature_openglcompute,
+        OpenGLCompute = halide_target_feature_openglcompute,  // NOTE: This feature is deprecated and will be removed in Halide 17.
         EGL = halide_target_feature_egl,
         UserContext = halide_target_feature_user_context,
         Profile = halide_target_feature_profile,
@@ -4794,6 +4822,15 @@ struct Target {
         SanitizerCoverage = halide_target_feature_sanitizer_coverage,
         ProfileByTimer = halide_target_feature_profile_by_timer,
         SPIRV = halide_target_feature_spirv,
+        Vulkan = halide_target_feature_vulkan,
+        VulkanInt8 = halide_target_feature_vulkan_int8,
+        VulkanInt16 = halide_target_feature_vulkan_int16,
+        VulkanInt64 = halide_target_feature_vulkan_int64,
+        VulkanFloat16 = halide_target_feature_vulkan_float16,
+        VulkanFloat64 = halide_target_feature_vulkan_float64,
+        VulkanV10 = halide_target_feature_vulkan_version10,
+        VulkanV12 = halide_target_feature_vulkan_version12,
+        VulkanV13 = halide_target_feature_vulkan_version13,
         Semihosting = halide_target_feature_semihosting,
         FeatureEnd = halide_target_feature_end
     };
@@ -4956,6 +4993,11 @@ struct Target {
      * 20 (our minimum supported cuda compute capability) if no cuda
      * features are set. */
     int get_cuda_capability_lower_bound() const;
+
+    /** Get the minimum Vulkan capability found as an integer. Returns
+     * 10 (our minimum supported Vulkan compute capability) if no Vulkan
+     * features are set. */
+    int get_vulkan_capability_lower_bound() const;
 
     /** Was libHalide compiled with support for this target? */
     bool supported() const;
@@ -6287,6 +6329,35 @@ public:
         return *((Buffer<typename std::add_const<T>::type, Dims, InClassDimStorage> *)this);
     }
     // @}
+
+    /** Add some syntactic sugar to allow autoconversion from Buffer<T> to Buffer<const T>& when
+     * passing arguments */
+    template<typename T2 = T, typename = typename std::enable_if<!std::is_const<T2>::value>::type>
+    operator Buffer<typename std::add_const<T2>::type, Dims, InClassDimStorage> &() & {
+        return as_const();
+    }
+
+    /** Add some syntactic sugar to allow autoconversion from Buffer<T> to Buffer<void>& when
+     * passing arguments */
+    template<typename TVoid,
+             typename T2 = T,
+             typename = typename std::enable_if<std::is_same<TVoid, void>::value &&
+                                                !std::is_void<T2>::value &&
+                                                !std::is_const<T2>::value>::type>
+    operator Buffer<TVoid, Dims, InClassDimStorage> &() & {
+        return as<TVoid, Dims>();
+    }
+
+    /** Add some syntactic sugar to allow autoconversion from Buffer<const T> to Buffer<const void>& when
+     * passing arguments */
+    template<typename TVoid,
+             typename T2 = T,
+             typename = typename std::enable_if<std::is_same<TVoid, void>::value &&
+                                                !std::is_void<T2>::value &&
+                                                std::is_const<T2>::value>::type>
+    operator Buffer<const TVoid, Dims, InClassDimStorage> &() & {
+        return as<const TVoid, Dims>();
+    }
 
     /** Conventional names for the first three dimensions. */
     // @{
@@ -8177,16 +8248,19 @@ public:
     }
     // @}
 
-    /** Make an Expr that loads from this concrete buffer at a computed coordinate. */
+    /** Make an Expr that loads from this concrete buffer at a computed
+     * coordinate. Returned Expr is const so that it's not possible to
+     * accidentally treat a buffer like a Func and try to assign an Expr to a
+     * given symbolic coordinate. */
     // @{
     template<typename... Args>
-    Expr operator()(const Expr &first, Args... rest) const {
+    const Expr operator()(const Expr &first, Args... rest) const {  // NOLINT
         std::vector<Expr> args = {first, rest...};
         return (*this)(args);
     }
 
     template<typename... Args>
-    Expr operator()(const std::vector<Expr> &args) const {
+    const Expr operator()(const std::vector<Expr> &args) const {  // NOLINT
         return buffer_accessor(Buffer<>(*this), args);
     }
     // @}
@@ -13336,6 +13410,9 @@ inline Tuple tuple_select(const Expr &c0, const Tuple &v0, const Expr &c1, const
 Expr mux(const Expr &id, const std::initializer_list<Expr> &values);
 Expr mux(const Expr &id, const std::vector<Expr> &values);
 Expr mux(const Expr &id, const Tuple &values);
+Expr mux(const Expr &id, const std::initializer_list<FuncRef> &values);
+Tuple mux(const Expr &id, const std::initializer_list<Tuple> &values);
+Tuple mux(const Expr &id, const std::vector<Tuple> &values);
 // @}
 
 /** Return the sine of a floating-point expression. If the argument is
@@ -22086,9 +22163,23 @@ protected:
         This is used to avoid "emulated" equivalent code-gen in case target has FP16 feature **/
     virtual bool supports_call_as_float16(const Call *op) const;
 
+    /** call_intrin does far too much to be useful and generally breaks things
+     * when one has carefully set things up for a specific architecture. This
+     * just does the bare minimum. call_intrin should be refactored and could
+     * call this, possibly with renaming of the methods. */
+    llvm::Value *simple_call_intrin(const std::string &intrin,
+                                    const std::vector<llvm::Value *> &args,
+                                    llvm::Type *result_type);
+
     /** Ensure that a vector value is either fixed or vscale depending to match desired_type.
      */
     llvm::Value *normalize_fixed_scalable_vector_type(llvm::Type *desired_type, llvm::Value *result);
+
+    /** Convert between two LLVM vectors of potentially different scalable/fixed and size.
+     * Used to handle converting to/from fixed vectors that are smaller than the minimum
+     * size scalable vector. */
+    llvm::Value *convert_fixed_or_scalable_vector_type(llvm::Value *arg,
+                                                       llvm::Type *desired_type);
 
     /** Convert an LLVM fixed vector value to the corresponding vscale vector value. */
     llvm::Value *fixed_to_scalable_vector_type(llvm::Value *fixed);
@@ -22537,6 +22628,30 @@ std::unique_ptr<CodeGen_Posix> new_CodeGen_PowerPC(const Target &target);
 std::unique_ptr<CodeGen_Posix> new_CodeGen_RISCV(const Target &target);
 std::unique_ptr<CodeGen_Posix> new_CodeGen_X86(const Target &target);
 std::unique_ptr<CodeGen_Posix> new_CodeGen_WebAssembly(const Target &target);
+
+}  // namespace Internal
+}  // namespace Halide
+
+#endif
+#ifndef HALIDE_CODEGEN_VULKAN_DEV_H
+#define HALIDE_CODEGEN_VULKAN_DEV_H
+
+/** \file
+ * Defines the code-generator for producing SPIR-V binary modules for
+ * use with the Vulkan runtime
+ */
+
+#include <memory>
+
+namespace Halide {
+
+struct Target;
+
+namespace Internal {
+
+struct CodeGen_GPU_Dev;
+
+std::unique_ptr<CodeGen_GPU_Dev> new_CodeGen_Vulkan_Dev(const Target &target);
 
 }  // namespace Internal
 }  // namespace Halide

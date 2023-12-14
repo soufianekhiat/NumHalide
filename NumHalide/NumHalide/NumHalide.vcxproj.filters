@@ -5,5 +5,6 @@
     <ClInclude Include="Common.h" />
     <ClInclude Include="InitializersFunc.h" />
     <ClInclude Include="InitializersArr.h" />
+    <ClInclude Include="ManipulationFunc.h" />
   </ItemGroup>
 </Project>

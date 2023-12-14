@@ -232,7 +232,7 @@ Buffer<ValueType>	diag( Type const type, Buffer<ValueType> const& values, Int32 
 {
 	Buffer<ValueType> ret = zeros<ValueType>( type, side, side );
 
-	for ( Int32 i = 0; i < side; ++i )
+	for ( Int32 i = 0; i < side - abs(k); ++i )
 	{
 		ret(i + k, i + k) = values(i);
 	}
