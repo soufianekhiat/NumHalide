@@ -5,6 +5,12 @@
 * NumHalide: header only
 * NumHalide_Examples: use case, currently a naive Visual Studio code, will change for a [sharpmake](https://github.com/ubisoft/sharpmake) or/and [CMake](https://github.com/Kitware/CMake) settings.
 
+Incentivise development [Patreon](https://www.patreon.com/SoufianeKHIAT)
+
+[<img src="https://c5.patreon.com/external/logo/become_a_patron_button@2x.png" alt="Become a Patron" width="150"/>](https://www.patreon.com/SoufianeKHIAT)
+
+https://www.patreon.com/SoufianeKHIAT
+
 No scheduling is provided. A final design is to split the function and scheduling for a given platform is still open to change.
 
 The NdArray is equivalent to Halide::Buffer<>.
