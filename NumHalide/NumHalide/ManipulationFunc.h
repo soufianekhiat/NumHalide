@@ -5,6 +5,16 @@
 
 NS_NUM_HALIDE_FUNC_BEGIN
 
+//////////////////////////////////////////////////////////////////////////
+// Usage:
+//	Var x, y;
+//	Buffer<f32> values( Float( 32 ), { 5, 4 } );
+//	Func in;
+//	in( x, y ) = values( x, y );
+//	Func flat = flatten( in, { 5, 4 }, "flatten" );
+//	RDom r( 0, 5*4 );
+//	Expr total = sum( flat( r ) );
+//////////////////////////////////////////////////////////////////////////
 inline
 Func flatten(Func in, std::vector<Expr> const& sizes, std::string const& name = "flatten")
 {
@@ -19,6 +29,16 @@ Func flatten(Func in, std::vector<Expr> const& sizes, std::string const& name = 
 	return ret;
 }
 
+//////////////////////////////////////////////////////////////////////////
+// Usage:
+//	Var x, y;
+//	Buffer<f32> values( Float( 32 ), { 5, 4 } );
+//	Func in;
+//	in( x, y ) = values( x, y );
+//	Func flat = flatten( in, { 5, 4 }, "flatten" );
+//	RDom r( 0, 5*4 );
+//	Expr total = sum( flat( r ) );
+//////////////////////////////////////////////////////////////////////////
 inline
 Func reshape(Func in, std::vector<Expr> const& sizes, std::vector<Expr> const& new_sizes, std::string const& name = "reshape")
 {
@@ -62,16 +82,19 @@ Func reshape(Func in, std::vector<Expr> const& sizes, std::vector<Expr> const& n
 inline
 Func vstack(std::vector<Func> const& tup)
 {
+	// TODO
 }
 
 inline
 Func hstack(std::vector<Func> const& tup)
 {
+	// TODO
 }
 
 inline
 Func dstack(std::vector<Func> const& tup)
 {
+	// TODO
 }
 
 NS_NUM_HALIDE_FUNC_END

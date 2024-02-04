@@ -309,8 +309,8 @@ int main()
 			}
 			std::cout << std::endl;
 			std::cout << std::endl;
-			std::cout << "xs = func::linspace(Float(32), 0.0f, 1.0f, 16);" << std::endl;
-			std::cout << "ys = func::linspace(Float(32), 0.0f, 1.0f, 16);" << std::endl;
+			std::cout << "xs = func::linspace(Float(32), 0.0f, 1.0f, 8);" << std::endl;
+			std::cout << "ys = func::linspace(Float(32), 0.0f, 1.0f, 4);" << std::endl;
 			std::cout << "func::meshgrid(Float(32), {xs, ys});" << std::endl;
 			for (int j = 0; j < height1; ++j)
 			{
