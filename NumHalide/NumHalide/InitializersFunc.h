@@ -23,7 +23,7 @@ bool is_const_value(Expr x, ValueType v)
 }
 
 inline
-Func	linspace( Type type, Expr _start, Expr _stop, Expr num = 50, std::string const& name = "linspace", Bool endpoint = true, Int32 axis = 0)
+Func	linspace( Type type, Expr _start, Expr _stop, Expr num = 50, Bool endpoint = true, Int32 axis = 0, std::string const& name = "linspace" )
 {
 	Func ret(name);
 	Var x;
@@ -38,33 +38,33 @@ Func	linspace( Type type, Expr _start, Expr _stop, Expr num = 50, std::string co
 	{
 		ret(x) = Internal::make_const( type, 0 );
 
-		ret.bound_storage(x, 1);
+		//ret.bound_storage(x, 1);
 	}
 
 	if ( is_const_one(num) )
 	{
-		Func ret;
+		//Func ret;
 
 		ret(x) = start;
-		ret.bound_storage(x, 1);
+		//ret.bound_storage(x, 1);
 	}
 
 	if ( endpoint )
 	{
 		if (is_const_value(num, 2))
 		{
-			Func ret;
+			//Func ret;
 			ret(x) = mux(x, { start, stop });
-			ret.specialize(start < stop);
-			ret.bound_storage(x, 2);
+			//ret.specialize(start < stop);
+			//ret.bound_storage(x, 2);
 		}
 		else
 		{
 			Expr step = ( stop - start ) / cast( type, num - 1 );
 
 			ret(x) = start + cast(type, x) * step;
-			ret.specialize(start < stop);
-			ret.bound_storage(x, num);
+			//ret.specialize(start < stop);
+			//ret.bound_storage(x, num);
 		}
 	}
 	else
@@ -73,16 +73,16 @@ Func	linspace( Type type, Expr _start, Expr _stop, Expr num = 50, std::string co
 		{
 			Expr step = ( stop - start ) / cast(type, num);
 			ret(x) = mux(x, { start, start + step });
-			ret.specialize(start < stop);
-			ret.bound_storage(x, 2);
+			//ret.specialize(start < stop);
+			//ret.bound_storage(x, 2);
 		}
 		else
 		{
 			Expr step = ( stop - start ) / cast(type, num);
 
 			ret(x) = start + cast(type, x) * step;
-			ret.specialize(start < stop);
-			ret.bound_storage(x, num);
+			//ret.specialize(start < stop);
+			//ret.bound_storage(x, num);
 		}
 	}
 
@@ -105,8 +105,8 @@ Func	arange(Type type, Expr _stop, std::string const& name = "arange")
 	require(stop > 0, stop);
 
 	ret(x) = cast(type, x);
-	ret.specialize(stop > Internal::make_const(type, 0));
-	ret.bound_storage(x, stop);
+	//ret.specialize(stop > Internal::make_const(type, 0));
+	//ret.bound_storage(x, stop);
 
 	return ret;
 }
@@ -129,11 +129,11 @@ Func	arange(Type type, Expr _start, Expr _stop, Expr _step = 1, std::string cons
 
 	ret(x) = cast(type, start + step*cast(type, x));
 
-	ret.bound_storage(x,
-					  select(step > Internal::make_const(type, 0),
-							 ( stop - start ) / step,
-							 ( start - stop ) / step
-						  ) );
+	//ret.bound_storage(x,
+	//				  select(step > Internal::make_const(type, 0),
+	//						 ( stop - start ) / step,
+	//						 ( start - stop ) / step
+	//					  ) );
 
 	return ret;
 }
@@ -153,13 +153,7 @@ Func	full( Type type, Expr value, Int32 dim, std::string const& name = "full")
 inline
 Func	empty( Type type, Int32 dim, std::string const& name = "empty")
 {
-	Func ret(name);
-	std::vector<Var> vars;
-	vars.resize(dim);
-
-	ret(vars) = undef(type);
-
-	return ret;
+	return Func(type, dim, name);
 }
 
 inline
@@ -239,12 +233,14 @@ std::vector<Func>	meshgrid(Type type, std::vector<Func> xis, std::string const& 
 {
 	Int32 rank = (Int32)xis.size();
 
+	std::vector<Var> vars;
+	vars.resize(rank);
+
 	std::vector<Func> values;
 	values.reserve(rank);
 	for (Int32 k = 0; k < rank; ++k)
 	{
 		Func base = empty(type, rank, name + '_' + std::to_string(k));
-		std::vector<Var> const& vars = base.args();
 		base(vars) = xis[k](vars[k]);
 
 		values.push_back(base);

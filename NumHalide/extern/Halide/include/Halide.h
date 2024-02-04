@@ -1652,7 +1652,8 @@ typedef enum halide_target_feature_t {
     halide_target_feature_avx512_knl,             ///< Enable the AVX512 features supported by Knight's Landing chips, such as the Xeon Phi x200. This includes the base AVX512 set, and also AVX512-CD and AVX512-ER.
     halide_target_feature_avx512_skylake,         ///< Enable the AVX512 features supported by Skylake Xeon server processors. This adds AVX512-VL, AVX512-BW, and AVX512-DQ to the base set. The main difference from the base AVX512 set is better support for small integer ops. Note that this does not include the Knight's Landing features. Note also that these features are not available on Skylake desktop and mobile processors.
     halide_target_feature_avx512_cannonlake,      ///< Enable the AVX512 features expected to be supported by future Cannonlake processors. This includes all of the Skylake features, plus AVX512-IFMA and AVX512-VBMI.
-    halide_target_feature_avx512_sapphirerapids,  ///< Enable the AVX512 features supported by Sapphire Rapids processors. This include all of the Cannonlake features, plus AVX512-VNNI and AVX512-BF16.
+    halide_target_feature_avx512_zen4,            ///< Enable the AVX512 features supported by Zen4 processors. This include all of the Cannonlake features, plus AVX512-VNNI, AVX512-BF16, and more.
+    halide_target_feature_avx512_sapphirerapids,  ///< Enable the AVX512 features supported by Sapphire Rapids processors. This include all of the Zen4 features, plus AVX-VNNI and AMX instructions.
     halide_target_feature_trace_loads,            ///< Trace all loads done by the pipeline. Equivalent to calling Func::trace_loads on every non-inlined Func.
     halide_target_feature_trace_stores,           ///< Trace all stores done by the pipeline. Equivalent to calling Func::trace_stores on every non-inlined Func.
     halide_target_feature_trace_realizations,     ///< Trace all realizations done by the pipeline. Equivalent to calling Func::trace_realizations on every non-inlined Func.
@@ -3929,6 +3930,10 @@ public:
      * lanes: The number of vector elements in the type. */
     Type(halide_type_code_t code, int bits, int lanes, const halide_handle_cplusplus_type *handle_type = nullptr)
         : type(code, (uint8_t)bits, (uint16_t)lanes), handle_type(handle_type) {
+        user_assert(lanes == type.lanes)
+            << "Halide only supports vector types with up to 65535 lanes. " << lanes << " lanes requested.";
+        user_assert(bits == type.bits)
+            << "Halide only supports types with up to 255 bits. " << bits << " bits requested.";
     }
 
     /** Trivial copy constructor. */
@@ -4738,6 +4743,7 @@ struct Target {
         ZnVer1,    /// Tune for AMD Zen   CPU (AMD Family 17h, launched 2017).
         ZnVer2,    /// Tune for AMD Zen 2 CPU (AMD Family 17h, launched 2019).
         ZnVer3,    /// Tune for AMD Zen 3 CPU (AMD Family 19h, launched 2020).
+        ZnVer4,    /// Tune for AMD Zen 4 CPU (AMD Family 19h, launched 2022).
     } processor_tune = ProcessorGeneric;
 
     /** Optional features a target can have.
@@ -4795,6 +4801,7 @@ struct Target {
         AVX512_Skylake = halide_target_feature_avx512_skylake,
         AVX512_Cannonlake = halide_target_feature_avx512_cannonlake,
         AVX512_SapphireRapids = halide_target_feature_avx512_sapphirerapids,
+        AVX512_Zen4 = halide_target_feature_avx512_zen4,
         TraceLoads = halide_target_feature_trace_loads,
         TraceStores = halide_target_feature_trace_stores,
         TraceRealizations = halide_target_feature_trace_realizations,
@@ -5250,7 +5257,7 @@ struct AllocationHeader {
     std::atomic<int> ref_count;
 
     // Note that ref_count always starts at 1
-    AllocationHeader(void (*deallocate_fn)(void *))
+    explicit AllocationHeader(void (*deallocate_fn)(void *))
         : deallocate_fn(deallocate_fn), ref_count(1) {
     }
 };
@@ -5386,7 +5393,7 @@ private:
     // operation as well.
     struct DevRefCountCropped : DeviceRefCount {
         Buffer<T, Dims, InClassDimStorage> cropped_from;
-        DevRefCountCropped(const Buffer<T, Dims, InClassDimStorage> &cropped_from)
+        explicit DevRefCountCropped(const Buffer<T, Dims, InClassDimStorage> &cropped_from)
             : cropped_from(cropped_from) {
             ownership = BufferDeviceOwnership::Cropped;
         }
@@ -5696,7 +5703,7 @@ public:
             return {min() + extent()};
         }
 
-        Dimension(const halide_dimension_t &dim)
+        explicit Dimension(const halide_dimension_t &dim)
             : d(dim) {
         }
     };
@@ -8439,6 +8446,7 @@ struct Argument {
 /** \file
  * Defines the internal representation of parameters to halide piplines
  */
+#include <optional>
 #include <string>
 
 
@@ -8449,9 +8457,20 @@ struct Expr;
 struct Type;
 enum class MemoryType;
 
+struct BufferConstraint {
+    Expr min, extent, stride;
+    Expr min_estimate, extent_estimate;
+};
+
 namespace Internal {
 
+#ifdef WITH_SERIALIZATION
+class Deserializer;
+class Serializer;
+#endif
 struct ParameterContents;
+
+}  // namespace Internal
 
 /** A reference-counted handle to a parameter to a halide
  * pipeline. May be a scalar parameter or a buffer */
@@ -8463,7 +8482,44 @@ class Parameter {
     void check_type(const Type &t) const;
 
 protected:
-    IntrusivePtr<ParameterContents> contents;
+    Internal::IntrusivePtr<Internal::ParameterContents> contents;
+
+#ifdef WITH_SERIALIZATION
+    friend class Internal::Deserializer;  //< for scalar_data()
+    friend class Internal::Serializer;    //< for scalar_data()
+#endif
+    friend class Pipeline;  //< for read_only_scalar_address()
+
+    /** Get the raw currently-bound buffer. null if unbound */
+    const halide_buffer_t *raw_buffer() const;
+
+    /** Get the pointer to the current value of the scalar
+     * parameter. For a given parameter, this address will never
+     * change. Note that this can only be used to *read* from -- it must
+     * not be written to, so don't cast away the constness. Only relevant when jitting. */
+    const void *read_only_scalar_address() const;
+
+    /** If the Parameter is a scalar, and the scalar data is valid, return
+     * the scalar data. Otherwise, return nullopt. */
+    std::optional<halide_scalar_value_t> scalar_data() const;
+
+    /** If the Parameter is a scalar and has a valid scalar value, return it.
+     * Otherwise, assert-fail. */
+    halide_scalar_value_t scalar_data_checked() const;
+
+    /** If the Parameter is a scalar *of the given type* and has a valid scalar value, return it.
+     * Otherwise, assert-fail. */
+    halide_scalar_value_t scalar_data_checked(const Type &val_type) const;
+
+    /** Construct a new buffer parameter via deserialization. */
+    Parameter(const Type &t, int dimensions, const std::string &name,
+              const Buffer<void> &buffer, int host_alignment, const std::vector<BufferConstraint> &buffer_constraints,
+              MemoryType memory_type);
+
+    /** Construct a new scalar parameter via deserialization. */
+    Parameter(const Type &t, int dimensions, const std::string &name,
+              const std::optional<halide_scalar_value_t> &scalar_data, const Expr &scalar_default, const Expr &scalar_min,
+              const Expr &scalar_max, const Expr &scalar_estimate);
 
 public:
     /** Construct a new undefined handle */
@@ -8506,44 +8562,41 @@ public:
      * bound value. Only relevant when jitting */
     template<typename T>
     HALIDE_NO_USER_CODE_INLINE T scalar() const {
-        check_type(type_of<T>());
-        return *((const T *)(scalar_address()));
+        static_assert(sizeof(T) <= sizeof(halide_scalar_value_t));
+        const auto sv = scalar_data_checked(type_of<T>());
+        T t;
+        memcpy(&t, &sv.u.u64, sizeof(t));
+        return t;
     }
 
-    /** This returns the current value of scalar<type()>()
-     * as an Expr. */
+    /** This returns the current value of scalar<type()>() as an Expr.
+     * If the Parameter is not scalar, or its scalar data is not valid, this will assert-fail. */
     Expr scalar_expr() const;
+
+    /** This returns true if scalar_expr() would return a valid Expr,
+     * false if not. */
+    bool has_scalar_value() const;
 
     /** If the parameter is a scalar parameter, set its current
      * value. Only relevant when jitting */
     template<typename T>
     HALIDE_NO_USER_CODE_INLINE void set_scalar(T val) {
-        check_type(type_of<T>());
-        *((T *)(scalar_address())) = val;
+        halide_scalar_value_t sv;
+        memcpy(&sv.u.u64, &val, sizeof(val));
+        set_scalar(type_of<T>(), sv);
     }
 
     /** If the parameter is a scalar parameter, set its current
      * value. Only relevant when jitting */
-    HALIDE_NO_USER_CODE_INLINE void set_scalar(const Type &val_type, halide_scalar_value_t val) {
-        check_type(val_type);
-        memcpy(scalar_address(), &val, val_type.bytes());
-    }
+    void set_scalar(const Type &val_type, halide_scalar_value_t val);
 
     /** If the parameter is a buffer parameter, get its currently
      * bound buffer. Only relevant when jitting */
     Buffer<void> buffer() const;
 
-    /** Get the raw currently-bound buffer. null if unbound */
-    const halide_buffer_t *raw_buffer() const;
-
     /** If the parameter is a buffer parameter, set its current
      * value. Only relevant when jitting */
     void set_buffer(const Buffer<void> &b);
-
-    /** Get the pointer to the current value of the scalar
-     * parameter. For a given parameter, this address will never
-     * change. Only relevant when jitting. */
-    void *scalar_address() const;
 
     /** Tests if this handle is the same as another handle */
     bool same_as(const Parameter &other) const;
@@ -8554,11 +8607,11 @@ public:
     /** Get and set constraints for the min, extent, stride, and estimates on
      * the min/extent. */
     //@{
-    void set_min_constraint(int dim, Expr e);
-    void set_extent_constraint(int dim, Expr e);
-    void set_stride_constraint(int dim, Expr e);
-    void set_min_constraint_estimate(int dim, Expr min);
-    void set_extent_constraint_estimate(int dim, Expr extent);
+    void set_min_constraint(int dim, const Expr &e);
+    void set_extent_constraint(int dim, const Expr &e);
+    void set_stride_constraint(int dim, const Expr &e);
+    void set_min_constraint_estimate(int dim, const Expr &min);
+    void set_extent_constraint_estimate(int dim, const Expr &extent);
     void set_host_alignment(int bytes);
     Expr min_constraint(int dim) const;
     Expr extent_constraint(int dim) const;
@@ -8567,6 +8620,10 @@ public:
     Expr extent_constraint_estimate(int dim) const;
     int host_alignment() const;
     //@}
+
+    /** Get buffer constraints for all dimensions,
+     *  only relevant when serializing. */
+    const std::vector<BufferConstraint> &buffer_constraints() const;
 
     /** Get and set constraints for scalar parameters. These are used
      * directly by Param, so they must be exported. */
@@ -8600,6 +8657,8 @@ public:
     void store_in(MemoryType memory_type);
     MemoryType memory_type() const;
 };
+
+namespace Internal {
 
 /** Validate arguments to a call to a func, image or imageparam. */
 void check_call_arg_types(const std::string &name, std::vector<Expr> *args, int dims);
@@ -9714,8 +9773,6 @@ class LoopLevel {
     explicit LoopLevel(Internal::IntrusivePtr<Internal::LoopLevelContents> c)
         : contents(std::move(c)) {
     }
-    LoopLevel(const std::string &func_name, const std::string &var_name,
-              bool is_rvar, int stage_index, bool locked = false);
 
 public:
     /** Return the index of the function stage associated with this loop level.
@@ -9731,6 +9788,10 @@ public:
     /** Construct an undefined LoopLevel. Calling any method on an undefined
      * LoopLevel (other than set()) will assert. */
     LoopLevel();
+
+    /** For deserialization only. */
+    LoopLevel(const std::string &func_name, const std::string &var_name,
+              bool is_rvar, int stage_index, bool locked = false);
 
     /** Construct a special LoopLevel value that implies
      * that a function should be inlined away. */
@@ -9767,6 +9828,21 @@ public:
     // Test if a loop level is 'root', which describes the site
     // outside of all for loops.
     bool is_root() const;
+
+    // For serialization only. Do not use in other cases.
+    int get_stage_index() const;
+
+    // For serialization only. Do not use in other cases.
+    std::string func_name() const;
+
+    // For serialization only. Do not use in other cases.
+    std::string var_name() const;
+
+    // For serialization only. Do not use in other cases.
+    bool is_rvar() const;
+
+    // For serialization only. Do not use in other cases.
+    bool locked() const;
 
     // Return a string of the form func.var -- note that this is safe
     // to call for root or inline LoopLevels, but asserts if !defined().
@@ -10187,6 +10263,10 @@ public:
     }
     StageSchedule(const StageSchedule &other) = default;
     StageSchedule();
+    StageSchedule(const std::vector<ReductionVariable> &rvars, const std::vector<Split> &splits,
+                  const std::vector<Dim> &dims, const std::vector<PrefetchDirective> &prefetches,
+                  const FuseLoopLevel &fuse_level, const std::vector<FusedPair> &fused_pairs,
+                  bool touched, bool allow_race_conditions, bool atomic, bool override_atomic_associativity_test);
 
     /** Return a copy of this StageSchedule. */
     StageSchedule get_copy() const;
@@ -10324,6 +10404,10 @@ public:
     Definition(const std::vector<Expr> &args, const std::vector<Expr> &values,
                const ReductionDomain &rdom, bool is_init);
 
+    /** Construct a Definition with deserialized data. */
+    Definition(bool is_init, const Expr &predicate, const std::vector<Expr> &args, const std::vector<Expr> &values,
+               const StageSchedule &schedule, const std::vector<Specialization> &specializations, const std::string &source_location);
+
     /** Construct an undefined Definition object. */
     Definition();
 
@@ -10349,13 +10433,23 @@ public:
      * definition. */
     void mutate(IRMutator *);
 
-    /** Get the default (no-specialization) arguments (left-hand-side) of the definition */
+    /** Get the default (no-specialization) arguments (left-hand-side) of the definition.
+     *
+     * Warning: Any Vars in the Exprs are not qualified with the Func name, so
+     * the Exprs may contain names which collide with names provided by
+     * unique_name.
+     */
     // @{
     const std::vector<Expr> &args() const;
     std::vector<Expr> &args();
     // @}
 
-    /** Get the default (no-specialization) right-hand-side of the definition */
+    /** Get the default (no-specialization) right-hand-side of the definition.
+     *
+     * Warning: Any Vars in the Exprs are not qualified with the Func name, so
+     * the Exprs may contain names which collide with names provided by
+     * unique_name.
+     */
     // @{
     const std::vector<Expr> &values() const;
     std::vector<Expr> &values();
@@ -10408,8 +10502,8 @@ struct Specialization {
 namespace Halide {
 
 struct ExternFuncArgument;
+class Parameter;
 class Tuple;
-
 class Var;
 
 /** An enum to specify calling convention for extern stages. */
@@ -10422,7 +10516,6 @@ enum class NameMangling {
 namespace Internal {
 
 struct Call;
-class Parameter;
 
 /** A reference-counted handle to Halide's internal representation of
  * a function. Similar to a front-end Func object, but with no
@@ -10458,6 +10551,29 @@ public:
 
     /** Construct a Function from an existing FunctionContents pointer. Must be non-null */
     explicit Function(const FunctionPtr &);
+
+    /** Update a function with deserialized data */
+    void update_with_deserialization(const std::string &name,
+                                     const std::string &origin_name,
+                                     const std::vector<Halide::Type> &output_types,
+                                     const std::vector<Halide::Type> &required_types,
+                                     int required_dims,
+                                     const std::vector<std::string> &args,
+                                     const FuncSchedule &func_schedule,
+                                     const Definition &init_def,
+                                     const std::vector<Definition> &updates,
+                                     const std::string &debug_file,
+                                     const std::vector<Parameter> &output_buffers,
+                                     const std::vector<ExternFuncArgument> &extern_arguments,
+                                     const std::string &extern_function_name,
+                                     NameMangling name_mangling,
+                                     DeviceAPI device_api,
+                                     const Expr &extern_proxy_expr,
+                                     bool trace_loads,
+                                     bool trace_stores,
+                                     bool trace_realizations,
+                                     const std::vector<std::string> &trace_tags,
+                                     bool frozen);
 
     /** Get a handle on the halide function contents that this Function
      * represents. */
@@ -10536,7 +10652,12 @@ public:
     int required_dimensions() const;
 
     /** Get the right-hand-side of the pure definition. Returns an
-     * empty vector if there is no pure definition. */
+     * empty vector if there is no pure definition.
+     *
+     * Warning: Any Vars in the Exprs are not qualified with the Func name, so
+     * the Exprs may contain names which collide with names provided by
+     * unique_name.
+     */
     const std::vector<Expr> &values() const;
 
     /** Does this function have a pure definition? */
@@ -10718,6 +10839,8 @@ std::pair<std::vector<Function>, std::map<std::string, Function>> deep_copy(
     const std::vector<Function> &outputs,
     const std::map<std::string, Function> &env);
 
+extern std::atomic<int> random_variable_counter;
+
 }  // namespace Internal
 }  // namespace Halide
 
@@ -10840,6 +10963,7 @@ enum class OutputFileType {
     cpp_stub,
     featurization,
     function_info_header,
+    hlpipe,
     llvm_assembly,
     object,
     python_extension,
@@ -10848,7 +10972,10 @@ enum class OutputFileType {
     schedule,
     static_library,
     stmt,
+    conceptual_stmt,
     stmt_html,
+    conceptual_stmt_html,
+    device_code,
 };
 
 /** Type of linkage a function in a lowered Halide module can have.
@@ -10971,6 +11098,17 @@ public:
     const std::vector<Module> &submodules() const;
     // @}
 
+    /** Tries to locate the offloaded CUDA PTX assembly contained in this Module.
+     * Might return a nullptr in case such buffer is not present in this Module.
+     */
+    Buffer<> get_cuda_ptx_assembly_buffer() const;
+
+    /**
+     * Tries to locate the offloaded (GPU) Device assembly contained in this Module.
+     * This can be any of the GPU kernel sources, etc...
+     */
+    Buffer<> get_device_code_buffer() const;
+
     /** Return the function with the given name. If no such function
      * exists in this module, assert. */
     Internal::LoweredFunc get_function_by_name(const std::string &name) const;
@@ -11008,6 +11146,12 @@ public:
 
     /** Set whether this module uses strict floating-point directives anywhere. */
     void set_any_strict_float(bool any_strict_float);
+
+    /** Remember the Stmt during lowing before device-specific offloading. */
+    void set_conceptual_code_stmt(const Internal::Stmt &stmt);
+
+    /** Get the remembered conceptual Stmt, remembered before device-specific offloading. */
+    const Internal::Stmt &get_conceptual_stmt() const;
 };
 
 /** Link a set of modules together into one module. */
@@ -11066,7 +11210,7 @@ struct ExternFuncArgument {
     Internal::FunctionPtr func;
     Buffer<> buffer;
     Expr expr;
-    Internal::Parameter image_param;
+    Parameter image_param;
 
     ExternFuncArgument(Internal::FunctionPtr f)
         : arg_type(FuncArg), func(std::move(f)) {
@@ -11086,7 +11230,7 @@ struct ExternFuncArgument {
         : arg_type(ExprArg), expr(e) {
     }
 
-    ExternFuncArgument(const Internal::Parameter &p)
+    ExternFuncArgument(const Parameter &p)
         : arg_type(ImageParamArg), image_param(p) {
         // Scalar params come in via the Expr constructor.
         internal_assert(p.is_buffer());
@@ -11178,6 +11322,9 @@ public:
      * the vector being outermost. */
     ReductionDomain(const std::vector<ReductionVariable> &domain);
 
+    /** Construct a reduction domain from deserialization */
+    ReductionDomain(const std::vector<ReductionVariable> &domain, const Expr &predicate, bool frozen);
+
     /** Return a deep copy of this ReductionDomain. */
     ReductionDomain deep_copy() const;
 
@@ -11250,6 +11397,13 @@ struct Cast : public ExprNode<Cast> {
     static Expr make(Type t, Expr v);
 
     static const IRNodeType _node_type = IRNodeType::Cast;
+
+    /** Check if the cast is equivalent to a reinterpret. */
+    bool is_reinterpret() const {
+        return (type.is_int_or_uint() &&
+                value.type().is_int_or_uint() &&
+                type.bits() == value.type().bits());
+    }
 };
 
 /** Reinterpret value as another type, without affecting any of the bits
@@ -12185,7 +12339,7 @@ namespace Halide {
 template<typename T = void>
 class Param {
     /** A reference-counted handle on the internal parameter object */
-    Internal::Parameter param;
+    Parameter param;
 
     // This is a deliberately non-existent type that allows us to compile Param<>
     // but provide less-confusing error messages if you attempt to call get<> or set<>
@@ -12478,11 +12632,11 @@ public:
                         param.get_argument_estimates());
     }
 
-    const Internal::Parameter &parameter() const {
+    const Parameter &parameter() const {
         return param;
     }
 
-    Internal::Parameter &parameter() {
+    Parameter &parameter() {
         return param;
     }
 };
@@ -12492,7 +12646,7 @@ public:
  * (e.g. to pass the user context to an extern function written in C). */
 inline Expr user_context_value() {
     return Internal::Variable::make(Handle(), "__user_context",
-                                    Internal::Parameter(Handle(), false, 0, "__user_context"));
+                                    Parameter(Handle(), false, 0, "__user_context"));
 }
 
 }  // namespace Halide
@@ -12931,6 +13085,12 @@ inline HALIDE_NO_USER_CODE_INLINE void collect_print_args(std::vector<Expr> &arg
 Expr requirement_failed_error(Expr condition, const std::vector<Expr> &args);
 
 Expr memoize_tag_helper(Expr result, const std::vector<Expr> &cache_key_values);
+
+/** Reset the counters used for random-number seeds in random_float/int/uint.
+ * (Note that the counters are incremented for each call, even if a seed is passed in.)
+ * This is used for multitarget compilation to ensure that each subtarget gets
+ * the same sequence of random numbers. */
+void reset_random_counters();
 
 }  // namespace Internal
 
@@ -13376,21 +13536,46 @@ inline Expr select(Expr c0, Expr v0, Expr c1, Expr v1, Args &&...args) {
 /** Equivalent of ternary select(), but taking/returning tuples. If the condition is
  * a Tuple, it must match the size of the true and false Tuples. */
 // @{
+HALIDE_ATTRIBUTE_DEPRECATED("tuple_select has been deprecated. Use select instead (which now works for Tuples)")
 Tuple tuple_select(const Tuple &condition, const Tuple &true_value, const Tuple &false_value);
+HALIDE_ATTRIBUTE_DEPRECATED("tuple_select has been deprecated. Use select instead (which now works for Tuples)")
 Tuple tuple_select(const Expr &condition, const Tuple &true_value, const Tuple &false_value);
+Tuple select(const Tuple &condition, const Tuple &true_value, const Tuple &false_value);
+Tuple select(const Expr &condition, const Tuple &true_value, const Tuple &false_value);
 // @}
 
 /** Equivalent of multiway select(), but taking/returning tuples. If the condition is
  * a Tuple, it must match the size of the true and false Tuples. */
 // @{
 template<typename... Args>
+HALIDE_ATTRIBUTE_DEPRECATED("tuple_select has been deprecated. Use select instead (which now works for Tuples)")
 inline Tuple tuple_select(const Tuple &c0, const Tuple &v0, const Tuple &c1, const Tuple &v1, Args &&...args) {
     return tuple_select(c0, v0, tuple_select(c1, v1, std::forward<Args>(args)...));
 }
-
 template<typename... Args>
+HALIDE_ATTRIBUTE_DEPRECATED("tuple_select has been deprecated. Use select instead (which now works for Tuples)")
 inline Tuple tuple_select(const Expr &c0, const Tuple &v0, const Expr &c1, const Tuple &v1, Args &&...args) {
     return tuple_select(c0, v0, tuple_select(c1, v1, std::forward<Args>(args)...));
+}
+template<typename... Args>
+inline Tuple select(const Tuple &c0, const Tuple &v0, const Tuple &c1, const Tuple &v1, Args &&...args) {
+    return select(c0, v0, select(c1, v1, std::forward<Args>(args)...));
+}
+template<typename... Args>
+inline Tuple select(const Expr &c0, const Tuple &v0, const Expr &c1, const Tuple &v1, Args &&...args) {
+    return select(c0, v0, select(c1, v1, std::forward<Args>(args)...));
+}
+// @}
+
+/** select applied to FuncRefs (e.g. select(x < 100, f(x), g(x))) is assumed to
+ * return an Expr. A runtime error is produced if this is applied to
+ * tuple-valued Funcs. In that case you should explicitly cast the second and
+ * third args to Tuple to remove the ambiguity. */
+// @{
+Expr select(const Expr &condition, const FuncRef &true_value, const FuncRef &false_value);
+template<typename... Args>
+inline Expr select(const Expr &c0, const FuncRef &v0, const Expr &c1, const FuncRef &v1, Args &&...args) {
+    return select(c0, v0, select(c1, v1, std::forward<Args>(args)...));
 }
 // @}
 
@@ -14368,122 +14553,6 @@ Expr rounding_mul_shift_right(const Expr &a, const Expr &b, int q, T * = nullptr
 }  // namespace Halide
 
 #endif
-#ifndef HALIDE_PARAM_MAP_H
-#define HALIDE_PARAM_MAP_H
-
-/** \file
- * Defines a collection of parameters to be passed as formal arguments
- * to a JIT invocation.
- */
-#include <map>
-
-
-namespace Halide {
-
-class ImageParam;
-
-class ParamMap {
-public:
-    struct ParamMapping {
-        const Internal::Parameter *parameter{nullptr};
-        const ImageParam *image_param{nullptr};
-        halide_scalar_value_t value;
-        Buffer<> buf;
-        Buffer<> *buf_out_param;
-
-        template<typename T>
-        ParamMapping(const Param<T> &p, const T &val)
-            : parameter(&p.parameter()) {
-            *((T *)&value) = val;
-        }
-
-        ParamMapping(const ImageParam &p, Buffer<> &buf)
-            : image_param(&p), buf(buf), buf_out_param(nullptr) {
-        }
-
-        template<typename T, int Dims>
-        ParamMapping(const ImageParam &p, Buffer<T, Dims> &buf)
-            : image_param(&p), buf(buf), buf_out_param(nullptr) {
-        }
-
-        ParamMapping(const ImageParam &p, Buffer<> *buf_ptr)
-            : image_param(&p), buf_out_param(buf_ptr) {
-        }
-
-        template<typename T, int Dims>
-        ParamMapping(const ImageParam &p, Buffer<T, Dims> *buf_ptr)
-            : image_param(&p), buf_out_param((Buffer<> *)buf_ptr) {
-        }
-    };
-
-private:
-    struct ParamArg {
-        Internal::Parameter mapped_param;
-        Buffer<> *buf_out_param = nullptr;
-
-        ParamArg() = default;
-        ParamArg(const ParamMapping &pm)
-            : mapped_param(pm.parameter->type(), false, 0, pm.parameter->name()) {
-            mapped_param.set_scalar(pm.parameter->type(), pm.value);
-        }
-        ParamArg(Buffer<> *buf_ptr)
-            : buf_out_param(buf_ptr) {
-        }
-        ParamArg(const ParamArg &) = default;
-    };
-    mutable std::map<const Internal::Parameter, ParamArg> mapping;
-
-    void set(const ImageParam &p, const Buffer<> &buf, Buffer<> *buf_out_param);
-
-public:
-    ParamMap() = default;
-
-    HALIDE_ATTRIBUTE_DEPRECATED("ParamMap is deprecated in Halide 16 and will be removed in Halide 17. "
-                                "Callers requiring threadsafe JIT calls should migrate to use compile_to_callable() instead.")
-    ParamMap(const std::initializer_list<ParamMapping> &init);
-
-    template<typename T>
-    HALIDE_ATTRIBUTE_DEPRECATED("ParamMap is deprecated in Halide 16 and will be removed in Halide 17. "
-                                "Callers requiring threadsafe JIT calls should migrate to use compile_to_callable() instead.")
-    void set(const Param<T> &p, T val) {
-        Internal::Parameter v(p.type(), false, 0, p.name());
-        v.set_scalar<T>(val);
-        ParamArg pa;
-        pa.mapped_param = v;
-        pa.buf_out_param = nullptr;
-        mapping[p.parameter()] = pa;
-    }
-
-    HALIDE_ATTRIBUTE_DEPRECATED("ParamMap is deprecated in Halide 16 and will be removed in Halide 17. "
-                                "Callers requiring threadsafe JIT calls should migrate to use compile_to_callable() instead.")
-    void set(const ImageParam &p, const Buffer<> &buf) {
-        set(p, buf, nullptr);
-    }
-
-    size_t size() const {
-        return mapping.size();
-    }
-
-    /** If there is an entry in the ParamMap for this Parameter, return it.
-     * Otherwise return the parameter itself. */
-    // @{
-    const Internal::Parameter &map(const Internal::Parameter &p, Buffer<> *&buf_out_param) const;
-
-    Internal::Parameter &map(Internal::Parameter &p, Buffer<> *&buf_out_param) const;
-    // @}
-
-    /** A const ref to an empty ParamMap. Useful for default function
-     * arguments, which would otherwise require a copy constructor
-     * (with llvm in c++98 mode) */
-    static const ParamMap &empty_map() {
-        static ParamMap empty_param_map;
-        return empty_param_map;
-    }
-};
-
-}  // namespace Halide
-
-#endif
 #ifndef HALIDE_REALIZATION_H
 #define HALIDE_REALIZATION_H
 
@@ -14686,7 +14755,7 @@ private:
     Internal::IntrusivePtr<PipelineContents> contents;
 
     // For the three method below, precisely one of the first two args should be non-null
-    void prepare_jit_call_arguments(RealizationArg &output, const Target &target, const ParamMap &param_map,
+    void prepare_jit_call_arguments(RealizationArg &output, const Target &target,
                                     JITUserContext **user_context, bool is_bounds_inference, Internal::JITCallArgs &args_result);
 
     static std::vector<Internal::JITModule> make_externs_jit_module(const Target &target,
@@ -14720,10 +14789,16 @@ public:
      * outputs. Schedules the Funcs compute_root(). */
     Pipeline(const std::vector<Func> &outputs);
 
+    /** Make a pipeline from deserialization. */
+    Pipeline(const std::vector<Func> &outputs, const std::vector<Internal::Stmt> &requirements);
+
     std::vector<Argument> infer_arguments(const Internal::Stmt &body);
 
     /** Get the Funcs this pipeline outputs. */
     std::vector<Func> outputs() const;
+
+    /** Get the requirements of this pipeline. */
+    std::vector<Internal::Stmt> requirements() const;
 
     /** Generate a schedule for the pipeline using the specified autoscheduler. */
     AutoSchedulerResults apply_autoscheduler(const Target &target,
@@ -14926,8 +15001,7 @@ public:
     const std::vector<CustomLoweringPass> &custom_lowering_passes();
 
     /** See Func::realize */
-    Realization realize(std::vector<int32_t> sizes = {}, const Target &target = Target(),
-                        const ParamMap &param_map = ParamMap::empty_map());
+    Realization realize(std::vector<int32_t> sizes = {}, const Target &target = Target());
 
     /** Same as above, but takes a custom user-provided context to be
      * passed to runtime functions. A nullptr context is legal, and is
@@ -14935,8 +15009,7 @@ public:
      * a context. */
     Realization realize(JITUserContext *context,
                         std::vector<int32_t> sizes = {},
-                        const Target &target = Target(),
-                        const ParamMap &param_map = ParamMap::empty_map());
+                        const Target &target = Target());
 
     /** Evaluate this Pipeline into an existing allocated buffer or
      * buffers. If the buffer is also one of the arguments to the
@@ -14947,9 +15020,7 @@ public:
      * shape, but the shape can vary across the different output
      * Funcs. This form of realize does *not* automatically copy data
      * back from the GPU. */
-    void realize(RealizationArg output,
-                 const Target &target = Target(),
-                 const ParamMap &param_map = ParamMap::empty_map());
+    void realize(RealizationArg output, const Target &target = Target());
 
     /** Same as above, but takes a custom user-provided context to be
      * passed to runtime functions. A nullptr context is legal, and
@@ -14957,8 +15028,7 @@ public:
      * take a context. */
     void realize(JITUserContext *context,
                  RealizationArg output,
-                 const Target &target = Target(),
-                 const ParamMap &param_map = ParamMap::empty_map());
+                 const Target &target = Target());
 
     /** For a given size of output, or a given set of output buffers,
      * determine the bounds required of all unbound ImageParams
@@ -14967,23 +15037,19 @@ public:
      * ImageParams. */
     // @{
     void infer_input_bounds(const std::vector<int32_t> &sizes,
-                            const Target &target = get_jit_target_from_environment(),
-                            const ParamMap &param_map = ParamMap::empty_map());
+                            const Target &target = get_jit_target_from_environment());
     void infer_input_bounds(RealizationArg output,
-                            const Target &target = get_jit_target_from_environment(),
-                            const ParamMap &param_map = ParamMap::empty_map());
+                            const Target &target = get_jit_target_from_environment());
     // @}
 
     /** Variants of infer_inputs_bounds that take a custom user context */
     // @{
     void infer_input_bounds(JITUserContext *context,
                             const std::vector<int32_t> &sizes,
-                            const Target &target = get_jit_target_from_environment(),
-                            const ParamMap &param_map = ParamMap::empty_map());
+                            const Target &target = get_jit_target_from_environment());
     void infer_input_bounds(JITUserContext *context,
                             RealizationArg output,
-                            const Target &target = get_jit_target_from_environment(),
-                            const ParamMap &param_map = ParamMap::empty_map());
+                            const Target &target = get_jit_target_from_environment());
     // @}
 
     /** Infer the arguments to the Pipeline, sorted into a canonical order:
@@ -15705,7 +15771,6 @@ std::vector<Var> make_argument_list(int dimensionality);
 namespace Halide {
 
 class OutputImageParam;
-class ParamMap;
 
 /** A class that can represent Vars or RVars. Used for reorder calls
  * which can accept a mix of either. */
@@ -16125,7 +16190,7 @@ public:
 
     Stage &prefetch(const Func &f, const VarOrRVar &at, const VarOrRVar &from, Expr offset = 1,
                     PrefetchBoundStrategy strategy = PrefetchBoundStrategy::GuardWithIf);
-    Stage &prefetch(const Internal::Parameter &param, const VarOrRVar &at, const VarOrRVar &from, Expr offset = 1,
+    Stage &prefetch(const Parameter &param, const VarOrRVar &at, const VarOrRVar &from, Expr offset = 1,
                     PrefetchBoundStrategy strategy = PrefetchBoundStrategy::GuardWithIf);
     template<typename T>
     Stage &prefetch(const T &image, const VarOrRVar &at, const VarOrRVar &from, Expr offset = 1,
@@ -16457,19 +16522,9 @@ public:
      *
      * In Halide formal arguments of a computation are specified using
      * Param<T> and ImageParam objects in the expressions defining the
-     * computation. The param_map argument to realize allows
-     * specifying a set of per-call parameters to be used for a
-     * specific computation. This method is thread-safe where the
-     * globals used by Param<T> and ImageParam are not. Any parameters
-     * that are not in the param_map are taken from the global values,
-     * so those can continue to be used if they are not changing
-     * per-thread.
-     *
-     * One can explicitly construct a ParamMap and
-     * use its set method to insert Parameter to scalar or Buffer
-     * value mappings. (NOTE: ParamMap is deprecated in Halide 16 and
-     * will be removed in Halide 17. Callers requiring threadsafe JIT
-     * calls should migrate to use compile_to_callable() instead.)
+     * computation. Note that this method is not thread-safe, in that
+     * Param<T> and ImageParam are globals shared by all threads; to call
+     * jitted code in a thread-safe manner, use compile_to_callable() instead.
      *
      \code
      Param<int32> p(42);
@@ -16478,12 +16533,9 @@ public:
 
      Buffer<int32_t) arg_img(10, 10);
      <fill in arg_img...>
-     ParamMap params;
-     params.set(p, 17);
-     params.set(img, arg_img);
 
      Target t = get_jit_target_from_environment();
-     Buffer<int32_t> result = f.realize({10, 10}, t, params);
+     Buffer<int32_t> result = f.realize({10, 10}, t);
      \endcode
      *
      * Alternatively, an initializer list can be used
@@ -16512,8 +16564,7 @@ public:
      * instead.
      *
      */
-    Realization realize(std::vector<int32_t> sizes = {}, const Target &target = Target(),
-                        const ParamMap &param_map = ParamMap::empty_map());
+    Realization realize(std::vector<int32_t> sizes = {}, const Target &target = Target());
 
     /** Same as above, but takes a custom user-provided context to be
      * passed to runtime functions. This can be used to pass state to
@@ -16522,8 +16573,7 @@ public:
      * that does not take a context. */
     Realization realize(JITUserContext *context,
                         std::vector<int32_t> sizes = {},
-                        const Target &target = Target(),
-                        const ParamMap &param_map = ParamMap::empty_map());
+                        const Target &target = Target());
 
     /** Evaluate this function into an existing allocated buffer or
      * buffers. If the buffer is also one of the arguments to the
@@ -16531,8 +16581,7 @@ public:
      * necessarily safe to run in-place. If you pass multiple buffers,
      * they must have matching sizes. This form of realize does *not*
      * automatically copy data back from the GPU. */
-    void realize(Pipeline::RealizationArg outputs, const Target &target = Target(),
-                 const ParamMap &param_map = ParamMap::empty_map());
+    void realize(Pipeline::RealizationArg outputs, const Target &target = Target());
 
     /** Same as above, but takes a custom user-provided context to be
      * passed to runtime functions. This can be used to pass state to
@@ -16541,39 +16590,19 @@ public:
      * that does not take a context. */
     void realize(JITUserContext *context,
                  Pipeline::RealizationArg outputs,
-                 const Target &target = Target(),
-                 const ParamMap &param_map = ParamMap::empty_map());
+                 const Target &target = Target());
 
     /** For a given size of output, or a given output buffer,
      * determine the bounds required of all unbound ImageParams
      * referenced. Communicates the result by allocating new buffers
      * of the appropriate size and binding them to the unbound
      * ImageParams.
-     *
-     * Set the documentation for Func::realize regarding the
-     * ParamMap. There is one difference in that input Buffer<>
-     * arguments that are being inferred are specified as a pointer to
-     * the Buffer<> in the ParamMap. E.g.
-     *
-     \code
-     Param<int32> p(42);
-     ImageParam img(Int(32), 1);
-     f(x) = img(x) + p;
-
-     Target t = get_jit_target_from_environment();
-     Buffer<> in;
-     f.infer_input_bounds({10, 10}, t, { { img, &in } });
-     \endcode
-     * On return, in will be an allocated buffer of the correct size
-     * to evaulate f over a 10x10 region.
      */
     // @{
     void infer_input_bounds(const std::vector<int32_t> &sizes,
-                            const Target &target = get_jit_target_from_environment(),
-                            const ParamMap &param_map = ParamMap::empty_map());
+                            const Target &target = get_jit_target_from_environment());
     void infer_input_bounds(Pipeline::RealizationArg outputs,
-                            const Target &target = get_jit_target_from_environment(),
-                            const ParamMap &param_map = ParamMap::empty_map());
+                            const Target &target = get_jit_target_from_environment());
     // @}
 
     /** Versions of infer_input_bounds that take a custom user context
@@ -16581,12 +16610,10 @@ public:
     // @{
     void infer_input_bounds(JITUserContext *context,
                             const std::vector<int32_t> &sizes,
-                            const Target &target = get_jit_target_from_environment(),
-                            const ParamMap &param_map = ParamMap::empty_map());
+                            const Target &target = get_jit_target_from_environment());
     void infer_input_bounds(JITUserContext *context,
                             Pipeline::RealizationArg outputs,
-                            const Target &target = get_jit_target_from_environment(),
-                            const ParamMap &param_map = ParamMap::empty_map());
+                            const Target &target = get_jit_target_from_environment());
     // @}
     /** Statically compile this function to llvm bitcode, with the
      * given filename (which should probably end in .bc), type
@@ -17116,9 +17143,10 @@ public:
      * factor does not provably divide the extent. */
     Func &split(const VarOrRVar &old, const VarOrRVar &outer, const VarOrRVar &inner, const Expr &factor, TailStrategy tail = TailStrategy::Auto);
 
-    /** Join two dimensions into a single fused dimension. The fused
-     * dimension covers the product of the extents of the inner and
-     * outer dimensions given. */
+    /** Join two dimensions into a single fused dimension. The fused dimension
+     * covers the product of the extents of the inner and outer dimensions
+     * given. The loop type (e.g. parallel, vectorized) of the resulting fused
+     * dimension is inherited from the first argument. */
     Func &fuse(const VarOrRVar &inner, const VarOrRVar &outer, const VarOrRVar &fused);
 
     /** Mark a dimension to be traversed serially. This is the default. */
@@ -17703,7 +17731,7 @@ public:
     // @{
     Func &prefetch(const Func &f, const VarOrRVar &at, const VarOrRVar &from, Expr offset = 1,
                    PrefetchBoundStrategy strategy = PrefetchBoundStrategy::GuardWithIf);
-    Func &prefetch(const Internal::Parameter &param, const VarOrRVar &at, const VarOrRVar &from, Expr offset = 1,
+    Func &prefetch(const Parameter &param, const VarOrRVar &at, const VarOrRVar &from, Expr offset = 1,
                    PrefetchBoundStrategy strategy = PrefetchBoundStrategy::GuardWithIf);
     template<typename T>
     Func &prefetch(const T &image, const VarOrRVar &at, const VarOrRVar &from, Expr offset = 1,
@@ -18439,6 +18467,29 @@ public:
      */
     virtual bool emit_cpp_stub(const std::string &stub_file_path) = 0;
 
+    /** Emit a Serialized Halide Pipeline (.hlpipe) file to the given path. Not all Generators support this.
+     *
+     * If you call this method, you should not call any other AbstractGenerator methods
+     * on this instance, before or after this call.
+     *
+     * If the Generator is capable of emitting an hlpipe, do so and return true. (Errors
+     * during hlpipe emission should assert-fail rather than returning false.)
+     *
+     * If the Generator is not capable of emitting an hlpipe, do nothing and return false.
+     *
+     * CALL-AFTER: none
+     * CALL-BEFORE: none
+     */
+    virtual bool emit_hlpipe(const std::string &hlpipe_file_path) = 0;
+
+    /** By default, a Generator must declare all Inputs before all Outputs.
+     *  In some unusual situations (e.g. metaprogramming situations), it's
+     * desirable to allow them to be declared out-of-order and put the onus
+     * of a non-obvious call order on the coder; a Generator may override this
+     * to return 'true' to allow this behavior.
+     */
+    virtual bool allow_out_of_order_inputs_and_outputs() const = 0;
+
     // Below are some concrete methods that build on top of the rest of the AbstractGenerator API.
     // Note that they are nonvirtual. TODO: would these be better as freestanding methods that
     // just take AbstractGeneratorPtr as arguments?
@@ -19152,10 +19203,12 @@ Box box_intersection(const Box &a, const Box &b);
 /** Test if box a provably contains box b */
 bool box_contains(const Box &a, const Box &b);
 
-/** Compute rectangular domains large enough to cover all the 'Call's
- * to each function that occurs within a given statement or
- * expression. This is useful for figuring out what regions of things
- * to evaluate. */
+/** Compute rectangular domains large enough to cover all the 'Call's to each
+ * function that occurs within a given statement or expression. This is useful
+ * for figuring out what regions of things to evaluate. Respects control flow
+ * (e.g. encodes if statement conditions), but assumes all encountered asserts
+ * pass. If it encounters an assert(false) in one if branch, assumes the
+ * opposite if branch runs unconditionally. */
 // @{
 std::map<std::string, Box> boxes_required(const Expr &e,
                                           const Scope<Interval> &scope = Scope<Interval>::empty_scope(),
@@ -19165,9 +19218,9 @@ std::map<std::string, Box> boxes_required(Stmt s,
                                           const FuncValueBounds &func_bounds = empty_func_value_bounds());
 // @}
 
-/** Compute rectangular domains large enough to cover all the
- * 'Provides's to each function that occurs within a given statement
- * or expression. */
+/** Compute rectangular domains large enough to cover all the 'Provides's to
+ * each function that occurs within a given statement or expression. Handles
+ * asserts in the same way as boxes_required. */
 // @{
 std::map<std::string, Box> boxes_provided(const Expr &e,
                                           const Scope<Interval> &scope = Scope<Interval>::empty_scope(),
@@ -19177,9 +19230,9 @@ std::map<std::string, Box> boxes_provided(Stmt s,
                                           const FuncValueBounds &func_bounds = empty_func_value_bounds());
 // @}
 
-/** Compute rectangular domains large enough to cover all the 'Call's
- * and 'Provides's to each function that occurs within a given
- * statement or expression. */
+/** Compute rectangular domains large enough to cover all the 'Call's and
+ * 'Provides's to each function that occurs within a given statement or
+ * expression. Handles asserts in the same way as boxes_required. */
 // @{
 std::map<std::string, Box> boxes_touched(const Expr &e,
                                          const Scope<Interval> &scope = Scope<Interval>::empty_scope(),
@@ -21158,7 +21211,7 @@ protected:
     bool have_user_context;
 
     /** Track current calling convention scope. */
-    bool extern_c_open;
+    bool extern_c_open = false;
 
     /** True if at least one gpu-based for loop is used. */
     bool uses_gpu_for_loops;
@@ -21243,13 +21296,13 @@ protected:
 
     /** Are we inside an atomic node that uses mutex locks?
         This is used for detecting deadlocks from nested atomics. */
-    bool inside_atomic_mutex_node;
+    bool inside_atomic_mutex_node = false;
 
     /** Emit atomic store instructions? */
-    bool emit_atomic_stores;
+    bool emit_atomic_stores = false;
 
     /** true if add_vector_typedefs() has been called. */
-    bool using_vector_typedefs;
+    bool using_vector_typedefs = false;
 
     /** Some architectures have private memory for the call stack; this
      * means a thread cannot hand pointers to stack memory to another
@@ -21787,13 +21840,13 @@ protected:
     virtual Type upgrade_type_for_argument_passing(const Type &) const;
 
     std::unique_ptr<llvm::Module> module;
-    llvm::Function *function;
-    llvm::LLVMContext *context;
+    llvm::Function *function = nullptr;
+    llvm::LLVMContext *context = nullptr;
     std::unique_ptr<llvm::IRBuilder<llvm::ConstantFolder, llvm::IRBuilderDefaultInserter>> builder;
-    llvm::Value *value;
-    llvm::MDNode *very_likely_branch;
-    llvm::MDNode *default_fp_math_md;
-    llvm::MDNode *strict_fp_math_md;
+    llvm::Value *value = nullptr;
+    llvm::MDNode *very_likely_branch = nullptr;
+    llvm::MDNode *default_fp_math_md = nullptr;
+    llvm::MDNode *strict_fp_math_md = nullptr;
     std::vector<LoweredArgument> current_function_args;
 
     /** The target we're generating code for */
@@ -21832,16 +21885,16 @@ protected:
 
     /** Some useful llvm types */
     // @{
-    llvm::Type *void_t, *i1_t, *i8_t, *i16_t, *i32_t, *i64_t, *f16_t, *f32_t, *f64_t;
-    llvm::StructType *halide_buffer_t_type,
-        *type_t_type,
-        *dimension_t_type,
-        *metadata_t_type,
-        *argument_t_type,
-        *scalar_value_t_type,
-        *device_interface_t_type,
-        *pseudostack_slot_t_type,
-        *semaphore_t_type;
+    llvm::Type *void_t = nullptr, *i1_t = nullptr, *i8_t = nullptr, *i16_t = nullptr, *i32_t = nullptr, *i64_t = nullptr, *f16_t = nullptr, *f32_t = nullptr, *f64_t = nullptr;
+    llvm::StructType *halide_buffer_t_type = nullptr,
+                     *type_t_type,
+                     *dimension_t_type,
+                     *metadata_t_type = nullptr,
+                     *argument_t_type = nullptr,
+                     *scalar_value_t_type = nullptr,
+                     *device_interface_t_type = nullptr,
+                     *pseudostack_slot_t_type = nullptr,
+                     *semaphore_t_type;
 
     // @}
 
@@ -22154,10 +22207,10 @@ protected:
 
     /** Are we inside an atomic node that uses mutex locks?
         This is used for detecting deadlocks from nested atomics & illegal vectorization. */
-    bool inside_atomic_mutex_node;
+    bool inside_atomic_mutex_node = false;
 
     /** Emit atomic store instructions? */
-    bool emit_atomic_stores;
+    bool emit_atomic_stores = false;
 
     /** Can we call this operation with float16 type?
         This is used to avoid "emulated" equivalent code-gen in case target has FP16 feature **/
@@ -22265,7 +22318,7 @@ protected:
 
     /** Controls use of vector predicated intrinsics for vector operations.
      * Will be set by certain backends (e.g. RISC V) to control codegen. */
-    bool use_llvm_vp_intrinsics;
+    bool use_llvm_vp_intrinsics = false;
     // @}
 
     /** Generate a basic dense vector load, with an optional predicate and
@@ -22291,7 +22344,7 @@ private:
     /** A basic block to branch to on error that triggers all
      * destructors. As destructors are registered, code gets added
      * to this block. */
-    llvm::BasicBlock *destructor_block;
+    llvm::BasicBlock *destructor_block = nullptr;
 
     /** Turn off all unsafe math flags in scopes while this is set. */
     bool strict_float;
@@ -22302,7 +22355,7 @@ private:
     /** Cache the result of target_vscale from architecture specific implementation
      * as this is used on every Halide to LLVM type conversion.
      */
-    int effective_vscale;
+    int effective_vscale = 0;
 
     /** Assign a unique ID to each producer-consumer and for-loop node. The IDs
      * are printed as comments in assembly and used to link visualizations with
@@ -23270,6 +23323,35 @@ Expr substitute_call_arg_with_pure_arg(Func f,
 }  // namespace Halide
 
 #endif
+#ifndef HALIDE_DESERIALIZATION_H
+#define HALIDE_DESERIALIZATION_H
+
+#include <istream>
+#include <string>
+
+namespace Halide {
+
+/// @brief Deserialize a Halide pipeline from a file.
+/// @param filename The location of the file to deserialize.  Must use .hlpipe extension.
+/// @param external_params Map of named input/output parameters to bind with the resulting pipeline (used to avoid deserializing specific objects and enable the use of externally defined ones instead).
+/// @return Returns a newly constructed deserialized Pipeline object/
+Pipeline deserialize_pipeline(const std::string &filename, const std::map<std::string, Parameter> &external_params);
+
+/// @brief Deserialize a Halide pipeline from an input stream.
+/// @param in The input stream to read from containing a serialized Halide pipeline
+/// @param external_params Map of named input/output parameters to bind with the resulting pipeline (used to avoid deserializing specific objects and enable the use of externally defined ones instead).
+/// @return Returns a newly constructed deserialized Pipeline object/
+Pipeline deserialize_pipeline(std::istream &in, const std::map<std::string, Parameter> &external_params);
+
+/// @brief Deserialize a Halide pipeline from a byte buffer containing a serizalized pipeline in binary format
+/// @param data The data buffer containing a serialized Halide pipeline
+/// @param external_params Map of named input/output parameters to bind with the resulting pipeline (used to avoid deserializing specific objects and enable the use of externally defined ones instead).
+/// @return Returns a newly constructed deserialized Pipeline object/
+Pipeline deserialize_pipeline(const std::vector<uint8_t> &data, const std::map<std::string, Parameter> &external_params);
+
+}  // namespace Halide
+
+#endif
 #ifndef HALIDE_DIMENSION_H
 #define HALIDE_DIMENSION_H
 
@@ -23304,7 +23386,7 @@ public:
     /** Set the min in a given dimension to equal the given
      * expression. Setting the mins to zero may simplify some
      * addressing math. */
-    Dimension set_min(Expr min);
+    Dimension set_min(const Expr &min);
 
     /** Set the extent in a given dimension to equal the given
      * expression. Images passed in that fail this check will generate
@@ -23327,20 +23409,20 @@ public:
      im.dim(0).set_extent((im.dim(0).extent()/32)*32);
      \endcode
      * tells the compiler that the extent is a multiple of 32. */
-    Dimension set_extent(Expr extent);
+    Dimension set_extent(const Expr &extent);
 
     /** Set the stride in a given dimension to equal the given
      * value. This is particularly helpful to set when
      * vectorizing. Known strides for the vectorized dimension
      * generate better code. */
-    Dimension set_stride(Expr stride);
+    Dimension set_stride(const Expr &stride);
 
     /** Set the min and extent in one call. */
-    Dimension set_bounds(Expr min, Expr extent);
+    Dimension set_bounds(const Expr &min, const Expr &extent);
 
     /** Set the min and extent estimates in one call. These values are only
      * used by the auto-scheduler and/or the RunGen tool/ */
-    Dimension set_estimate(Expr min, Expr extent);
+    Dimension set_estimate(const Expr &min, const Expr &extent);
 
     Expr min_estimate() const;
     Expr extent_estimate() const;
@@ -23354,14 +23436,36 @@ private:
     friend class ::Halide::OutputImageParam;
 
     /** Construct a Dimension representing dimension d of some
-     * Internal::Parameter p. Only friends may construct
+     * Parameter p. Only friends may construct
      * these. */
-    Dimension(const Internal::Parameter &p, int d, Func f);
+    Dimension(const Parameter &p, int d, Func f);
 
     Parameter param;
     int d;
     Func f;
 };
+
+}  // namespace Internal
+}  // namespace Halide
+
+#endif
+#ifndef HALIDE_DISTRIBUTE_SHIFTS_H
+#define HALIDE_DISTRIBUTE_SHIFTS_H
+
+/** \file
+ * A tool to distribute shifts as multiplies, useful for some backends. (e.g. ARM, HVX).
+ */
+
+
+namespace Halide {
+namespace Internal {
+
+// Distributes shifts as multiplies. If `multiply_adds` is set,
+// then only distributes the patterns `a + widening_shl(b, c)` /
+// `a - widening_shl(b, c)` and `a + b << c` / `a - b << c`, to
+// produce `a (+/-) widening_mul(b, 1 << c)` and `a (+/-) b * (1 << c)`,
+// respectively
+Stmt distribute_shifts(const Stmt &stmt, bool multiply_adds);
 
 }  // namespace Internal
 }  // namespace Halide
@@ -24151,10 +24255,10 @@ class ExprUsesVars : public IRGraphVisitor {
 
 public:
     ExprUsesVars(const Scope<T> &v, const Scope<Expr> *s = nullptr)
-        : vars(v), result(false) {
+        : vars(v) {
         scope.set_containing_scope(s);
     }
-    bool result;
+    bool result = false;
 };
 
 /** Test if a statement or expression references or defines any of the
@@ -24842,7 +24946,7 @@ protected:
     friend class Func;
 
     /** A reference-counted handle on the internal parameter object */
-    Internal::Parameter param;
+    Parameter param;
 
     /** Is this an input or an output? OutputImageParam is the base class for both. */
     Argument::Kind kind = Argument::InputScalar;
@@ -24858,7 +24962,7 @@ protected:
                                           bool *placeholder_seen) const;
 
     /** Construct an OutputImageParam that wraps an Internal Parameter object. */
-    OutputImageParam(const Internal::Parameter &p, Argument::Kind k, Func f);
+    OutputImageParam(const Parameter &p, Argument::Kind k, Func f);
 
 public:
     /** Construct a null image parameter handle. */
@@ -24920,7 +25024,7 @@ public:
     Expr channels() const;
 
     /** Get at the internal parameter object representing this ImageParam. */
-    Internal::Parameter parameter() const;
+    Parameter parameter() const;
 
     /** Construct the appropriate argument matching this parameter,
      * for the purpose of generating the right type signature when
@@ -24959,7 +25063,7 @@ class ImageParam : public OutputImageParam {
     friend class ::Halide::Internal::GeneratorInput_Buffer;
 
     // Only for use of Generator
-    ImageParam(const Internal::Parameter &p, Func f)
+    ImageParam(const Parameter &p, Func f)
         : OutputImageParam(p, Argument::InputBuffer, std::move(f)) {
     }
 
@@ -25239,7 +25343,6 @@ static TestCompilationUnit test_object;
 
 #include <cstddef>
 #include <cstdint>
-
 #include <map>
 #include <mutex>
 #include <vector>
@@ -25287,11 +25390,11 @@ public:
     static void unregister_instance(void *this_ptr);
 
     /** Returns the list of subject pointers for objects that have
-     *   been directly registered within the given range. If there is
-     *   another containing object inside the range, instances within
-     *   that object are skipped.
+     * been directly registered within the given range. If there is
+     * another containing object inside the range, instances within
+     * that object are skipped.
      */
-    static std::vector<void *> instances_in_range(void *start, size_t size, Kind kind);
+    static std::vector<std::pair<void *, Kind>> instances_in_range(void *start, size_t size);
 
 private:
     static ObjectInstanceRegistry &get_registry();
@@ -27048,7 +27151,8 @@ protected:
 
     void set_def_min_max() override {
         for (Parameter &p : this->parameters_) {
-            p.set_scalar<TBase>(def_);
+            // No: we want to leave the Parameter unset here.
+            // p.set_scalar<TBase>(def_);
             p.set_default_value(def_expr_);
         }
     }
@@ -28720,6 +28824,7 @@ public:
     std::string name() override;
     GeneratorContext context() const override;
     std::vector<ArgInfo> arginfos() override;
+    bool allow_out_of_order_inputs_and_outputs() const override;
 
     void set_generatorparam_value(const std::string &name, const std::string &value) override;
     void set_generatorparam_value(const std::string &name, const LoopLevel &loop_level) override;
@@ -28735,6 +28840,7 @@ public:
     void bind_input(const std::string &name, const std::vector<Expr> &v) override;
 
     bool emit_cpp_stub(const std::string &stub_file_path) override;
+    bool emit_hlpipe(const std::string &hlpipe_file_path) override;
 
     GeneratorBase(const GeneratorBase &) = delete;
     GeneratorBase &operator=(const GeneratorBase &) = delete;
@@ -28967,7 +29073,7 @@ struct ExecuteGeneratorArgs {
         Default,
 
         // Build a version suitable for using for gradient descent calculation.
-        Gradient
+        Gradient,
     } build_mode = Default;
 
     // The fn that will produce Generator(s) from the name specified.
@@ -29024,19 +29130,21 @@ namespace halide_register_generator {
 struct halide_global_ns;
 };
 
-#define _HALIDE_REGISTER_GENERATOR_IMPL(GEN_CLASS_NAME, GEN_REGISTRY_NAME, FULLY_QUALIFIED_STUB_NAME)                               \
-    namespace halide_register_generator {                                                                                           \
-    struct halide_global_ns;                                                                                                        \
-    namespace GEN_REGISTRY_NAME##_ns {                                                                                              \
-        std::unique_ptr<Halide::Internal::AbstractGenerator> factory(const Halide::GeneratorContext &context);                      \
-        std::unique_ptr<Halide::Internal::AbstractGenerator> factory(const Halide::GeneratorContext &context) {                     \
-            using GenType = std::remove_pointer<decltype(new GEN_CLASS_NAME)>::type; /* NOLINT(bugprone-macro-parentheses) */       \
-            return GenType::create(context, #GEN_REGISTRY_NAME, #FULLY_QUALIFIED_STUB_NAME);                                        \
-        }                                                                                                                           \
-    }                                                                                                                               \
-    static auto reg_##GEN_REGISTRY_NAME = Halide::Internal::RegisterGenerator(#GEN_REGISTRY_NAME, GEN_REGISTRY_NAME##_ns::factory); \
-    }                                                                                                                               \
-    static_assert(std::is_same<::halide_register_generator::halide_global_ns, halide_register_generator::halide_global_ns>::value,  \
+#define _HALIDE_REGISTER_GENERATOR_IMPL(GEN_CLASS_NAME, GEN_REGISTRY_NAME, FULLY_QUALIFIED_STUB_NAME)                              \
+    namespace halide_register_generator {                                                                                          \
+    struct halide_global_ns;                                                                                                       \
+    namespace GEN_REGISTRY_NAME##_ns {                                                                                             \
+        std::unique_ptr<Halide::Internal::AbstractGenerator> factory(const Halide::GeneratorContext &context);                     \
+        std::unique_ptr<Halide::Internal::AbstractGenerator> factory(const Halide::GeneratorContext &context) {                    \
+            using GenType = std::remove_pointer<decltype(new GEN_CLASS_NAME)>::type; /* NOLINT(bugprone-macro-parentheses) */      \
+            return GenType::create(context, #GEN_REGISTRY_NAME, #FULLY_QUALIFIED_STUB_NAME);                                       \
+        }                                                                                                                          \
+    }                                                                                                                              \
+    namespace {                                                                                                                    \
+    auto reg_##GEN_REGISTRY_NAME = Halide::Internal::RegisterGenerator(#GEN_REGISTRY_NAME, GEN_REGISTRY_NAME##_ns::factory);       \
+    }                                                                                                                              \
+    }                                                                                                                              \
+    static_assert(std::is_same<::halide_register_generator::halide_global_ns, halide_register_generator::halide_global_ns>::value, \
                   "HALIDE_REGISTER_GENERATOR must be used at global scope");
 
 #define _HALIDE_REGISTER_GENERATOR2(GEN_CLASS_NAME, GEN_REGISTRY_NAME) \
@@ -29086,23 +29194,25 @@ struct halide_global_ns;
 // It is specified as a variadic template argument to allow for the fact that the embedded commas
 // would otherwise confuse the preprocessor; since (in this case) all we're going to do is
 // pass it thru as-is, this is fine (and even MSVC's 'broken' __VA_ARGS__ should be OK here).
-#define HALIDE_REGISTER_GENERATOR_ALIAS(GEN_REGISTRY_NAME, ORIGINAL_REGISTRY_NAME, ...)                                             \
-    namespace halide_register_generator {                                                                                           \
-    struct halide_global_ns;                                                                                                        \
-    namespace ORIGINAL_REGISTRY_NAME##_ns {                                                                                         \
-        std::unique_ptr<Halide::Internal::AbstractGenerator> factory(const Halide::GeneratorContext &context);                      \
-    }                                                                                                                               \
-    namespace GEN_REGISTRY_NAME##_ns {                                                                                              \
-        std::unique_ptr<Halide::Internal::AbstractGenerator> factory(const Halide::GeneratorContext &context) {                     \
-            auto g = ORIGINAL_REGISTRY_NAME##_ns::factory(context);                                                                 \
-            const Halide::GeneratorParamsMap m = __VA_ARGS__;                                                                       \
-            g->set_generatorparam_values(m);                                                                                        \
-            return g;                                                                                                               \
-        }                                                                                                                           \
-    }                                                                                                                               \
-    static auto reg_##GEN_REGISTRY_NAME = Halide::Internal::RegisterGenerator(#GEN_REGISTRY_NAME, GEN_REGISTRY_NAME##_ns::factory); \
-    }                                                                                                                               \
-    static_assert(std::is_same<::halide_register_generator::halide_global_ns, halide_register_generator::halide_global_ns>::value,  \
+#define HALIDE_REGISTER_GENERATOR_ALIAS(GEN_REGISTRY_NAME, ORIGINAL_REGISTRY_NAME, ...)                                            \
+    namespace halide_register_generator {                                                                                          \
+    struct halide_global_ns;                                                                                                       \
+    namespace ORIGINAL_REGISTRY_NAME##_ns {                                                                                        \
+        std::unique_ptr<Halide::Internal::AbstractGenerator> factory(const Halide::GeneratorContext &context);                     \
+    }                                                                                                                              \
+    namespace GEN_REGISTRY_NAME##_ns {                                                                                             \
+        std::unique_ptr<Halide::Internal::AbstractGenerator> factory(const Halide::GeneratorContext &context) {                    \
+            auto g = ORIGINAL_REGISTRY_NAME##_ns::factory(context);                                                                \
+            const Halide::GeneratorParamsMap m = __VA_ARGS__;                                                                      \
+            g->set_generatorparam_values(m);                                                                                       \
+            return g;                                                                                                              \
+        }                                                                                                                          \
+    }                                                                                                                              \
+    namespace {                                                                                                                    \
+    auto reg_##GEN_REGISTRY_NAME = Halide::Internal::RegisterGenerator(#GEN_REGISTRY_NAME, GEN_REGISTRY_NAME##_ns::factory);       \
+    }                                                                                                                              \
+    }                                                                                                                              \
+    static_assert(std::is_same<::halide_register_generator::halide_global_ns, halide_register_generator::halide_global_ns>::value, \
                   "HALIDE_REGISTER_GENERATOR_ALIAS must be used at global scope");
 
 // The HALIDE_GENERATOR_PYSTUB macro is used to produce "PyStubs" -- i.e., CPython wrappers to let a C++ Generator
@@ -31534,6 +31644,7 @@ struct SliceOp {
         }
         const Shuffle &v = (const Shuffle &)e;
         return v.vectors.size() == 1 &&
+               v.is_slice() &&
                vec.template match<bound>(*v.vectors[0].get(), state) &&
                base.template match<bound | bindings<Vec>::mask>(v.slice_begin(), state) &&
                stride.template match<bound | bindings<Vec>::mask | bindings<Base>::mask>(v.slice_stride(), state) &&
@@ -33660,6 +33771,38 @@ Stmt select_gpu_api(const Stmt &s, const Target &t);
 }  // namespace Halide
 
 #endif
+#ifndef HALIDE_SERIALIZATION_H
+#define HALIDE_SERIALIZATION_H
+
+
+namespace Halide {
+
+/// @brief Serialize a Halide pipeline into the given data buffer.
+/// @param pipeline The Halide pipeline to serialize.
+/// @param data The data buffer to store the serialized Halide pipeline into. Any existing contents will be destroyed.
+/// @param params Map of named parameters which will get populated during serialization (can be used to bind external parameters to objects in the pipeline by name).
+void serialize_pipeline(const Pipeline &pipeline, std::vector<uint8_t> &data);
+
+/// @brief Serialize a Halide pipeline into the given data buffer.
+/// @param pipeline The Halide pipeline to serialize.
+/// @param data The data buffer to store the serialized Halide pipeline into. Any existing contents will be destroyed.
+/// @param params Map of named parameters which will get populated during serialization (can be used to bind external parameters to objects in the pipeline by name).
+void serialize_pipeline(const Pipeline &pipeline, std::vector<uint8_t> &data, std::map<std::string, Parameter> &params);
+
+/// @brief Serialize a Halide pipeline into the given filename.
+/// @param pipeline The Halide pipeline to serialize.
+/// @param filename The location of the file to write into to store the serialized pipeline.  Any existing contents will be destroyed.
+void serialize_pipeline(const Pipeline &pipeline, const std::string &filename);
+
+/// @brief Serialize a Halide pipeline into the given filename.
+/// @param pipeline The Halide pipeline to serialize.
+/// @param filename The location of the file to write into to store the serialized pipeline.  Any existing contents will be destroyed.
+/// @param params Map of named parameters which will get populated during serialization (can be used to bind external parameters to objects in the pipeline by name).
+void serialize_pipeline(const Pipeline &pipeline, const std::string &filename, std::map<std::string, Parameter> &params);
+
+}  // namespace Halide
+
+#endif
 #ifndef HALIDE_SIMPLIFY_H
 #define HALIDE_SIMPLIFY_H
 
@@ -33961,8 +34104,8 @@ Stmt stage_strided_loads(const Stmt &s);
 }  // namespace Halide
 
 #endif
-#ifndef HALIDE_STMT_TO_VIZ
-#define HALIDE_STMT_TO_VIZ
+#ifndef HALIDE_STMT_TO_HTML
+#define HALIDE_STMT_TO_HTML
 
 /** \file
  * Defines a function to dump an HTML-formatted visualization to a file.
@@ -33983,9 +34126,18 @@ struct Stmt;
  * to assembly output. If empty, the code will attempt to find such a
  * file based on output_filename (replacing ".stmt.html" with ".s"),
  * and will assert-fail if no such file is found. */
-void print_to_viz(const std::string &html_output_filename,
-                  const Module &m,
-                  const std::string &assembly_input_filename = "");
+void print_to_stmt_html(const std::string &html_output_filename,
+                        const Module &m,
+                        const std::string &assembly_input_filename = "");
+
+/** Dump an HTML-formatted visualization of a Module's conceptual Stmt code to filename.
+ * If assembly_input_filename is not empty, it is expected to be the path
+ * to assembly output. If empty, the code will attempt to find such a
+ * file based on output_filename (replacing ".stmt.html" with ".s"),
+ * and will assert-fail if no such file is found. */
+void print_to_conceptual_stmt_html(const std::string &html_output_filename,
+                                   const Module &m,
+                                   const std::string &assembly_input_filename = "");
 
 }  // namespace Internal
 }  // namespace Halide

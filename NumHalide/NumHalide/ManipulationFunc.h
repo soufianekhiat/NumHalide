@@ -59,4 +59,19 @@ Func reshape(Func in, std::vector<Expr> const& sizes, std::vector<Expr> const& n
 	return ret;
 }
 
+inline
+Func vstack(std::vector<Func> const& tup)
+{
+}
+
+inline
+Func hstack(std::vector<Func> const& tup)
+{
+}
+
+inline
+Func dstack(std::vector<Func> const& tup)
+{
+}
+
 NS_NUM_HALIDE_FUNC_END

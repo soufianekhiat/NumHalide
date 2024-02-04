@@ -58,7 +58,7 @@ int main()
 {
 	try
 	{
-#if 0
+#if 1
 //#if 1
 		{
 			Int32 num = 5;
@@ -263,7 +263,7 @@ int main()
 		}
 #endif
 //#elif 1
-#if 0
+#if 1
 		{
 			//Int32 count_x_val = 16;
 			//Int32 count_y_val = 16;
@@ -334,6 +334,7 @@ int main()
 //#endif
 #endif
 
+#if 1
 		Buffer<f32> values(Float(32), { 5, 4 });
 		values.for_each_element(
 			[&](int x, int y)
@@ -375,7 +376,23 @@ int main()
 					std::cout << std::endl;
 			});
 
-#if 0
+		//res.compile_to(
+		//	{
+		//		{OutputFileType::cpp_stub, "fn.cpp"},
+		//		{OutputFileType::device_code, "fn.device.c"},
+		//		{OutputFileType::c_source, "fn.c"},
+		//		//{OutputFileType::compiler_log, "fn.halide_compiler_log"},
+		//		{OutputFileType::llvm_assembly, "fn.ll"},
+		//		{OutputFileType::python_extension, "fn.py.cpp"},
+		//		{OutputFileType::pytorch_wrapper, "fn.pytorch.h"},
+		//		{OutputFileType::assembly, "fn.asm"},
+		//		{OutputFileType::device_code, "fn.dc"},
+		//		{OutputFileType::conceptual_stmt_html, "fn.html"},
+		//		{OutputFileType::bitcode, "fn.bc"}
+		//	}, {}, "");
+#endif
+
+#if 1
 		{
 			_putenv("HL_DEBUG_CODEGEN=1");
 			//std::cout << "VarValue: " << Halide::Internal::get_env_variable("HL_DEBUG_CODEGEN") << std::endl;
