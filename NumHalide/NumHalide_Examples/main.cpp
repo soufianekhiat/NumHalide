@@ -23,9 +23,8 @@ using namespace numhalide::func;
 //using namespace numhalide::arr;
 using namespace Halide;
 
-Func ImgFunc()
+Func ImgFunc( Expr width )
 {
-	int width = 256;
 	Func xs = func::linspace(Float(32), 0.0f, 1.0f, width, "xs");
 	Func ys = func::linspace(Float(32), 0.0f, 1.0f, width, "ys");
 	std::vector<Func> ids = numhalide::func::meshgrid(Float(32), { xs, ys }, "meshgrid");
@@ -43,10 +42,6 @@ Func ImgFunc()
 
 	Func result(UInt(8), 3, "image");
 	result(c, u, v) = select(c < 3, to8bits, Internal::make_const(UInt(8), 255));
-	//result(0, u, v) = to8bits;
-	//result(1, u, v) = to8bits;
-	//result(2, u, v) = to8bits;
-	//result(4, u, v) = Internal::make_const(UInt(8), 255);
 	result.set_estimates({ { 0, 4 }, { 0, width }, { 0, width } });
 	xs.set_estimates({ { 0, width } });
 	ys.set_estimates({ { 0, width } });
@@ -406,8 +401,8 @@ int main()
 					.with_feature(Target::Feature::NoBoundsQuery)
 					.with_feature(Target::Feature::NoAsserts);
 
-				Pipeline pCPU(ImgFunc());
-				pCPU.apply_autoscheduler(t, { "Adams2019", {} });
+				Pipeline pCPU(ImgFunc( width ));
+				//pCPU.apply_autoscheduler(t, { "Adams2019", {} });
 
 				pCPU.print_loop_nest();
 				pCPU.compile_to_c("image_cpu.cpp", {}, "image", t);
@@ -439,7 +434,7 @@ int main()
 			std::vector<UInt8> results;
 			results.resize(width * width * 4);
 
-			Callable call = ImgFunc().compile_to_callable({});
+			Callable call = ImgFunc(width).compile_to_callable({});
 
 			Buffer<UInt8> resBuf(UInt(8), &results[0], { 4, width, width });
 

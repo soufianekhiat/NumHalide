@@ -5,6 +5,36 @@
 * NumHalide: header only
 * NumHalide_Examples: use case, currently a naive Visual Studio code, will change for a [sharpmake](https://github.com/ubisoft/sharpmake) or/and [CMake](https://github.com/Kitware/CMake) settings.
 
+The point of the project is only simply having the syntaxic sugar of Numpy available for Halide user. It will allow us to have the power of Halide!
+
+Let's take a simple example:
+```cpp
+Func xs = func::linspace(Float(32), 0.0f, 1.0f, width, "xs");
+Func ys = func::linspace(Float(32), 0.0f, 1.0f, width, "ys");
+std::vector<Func> ids = numhalide::func::meshgrid(Float(32), { xs, ys }, "meshgrid");
+Func x = ids[0];
+Func y = ids[1];
+
+Var u, v, c;
+
+Expr cx = 2.0f * (x(u, v) - 0.5f);
+Expr cy = 2.0f * (y(u, v) - 0.5f);
+
+Expr out = exp(-(cx * cx + cy * cy) / 0.25f);
+
+Expr to8bits = cast(UInt(8), round(pow(clamp(out, 0.0f, 1.0f), 1.0f / 2.2f) * 255.0f));
+
+Func result(UInt(8), 3, "image");
+result(c, u, v) = select(c < 3, to8bits, Internal::make_const(UInt(8), 255));
+```
+That will generate a gaussian centered image in 8 bits. But what matter is the how, Halide did his magic and will produce an elegant code:
+```cpp
+image[(((image.stride.1 * t145) + t147) + image.s0.v38.rebased)] =
+    select(((image.min.0 + image.s0.v38.rebased) < 3),
+        uint8(round((pow_f32(max(min(exp_f32((((((t140 * 0.003914f) + -1.000000f) * ((t140 * 0.003914f) + -1.000000f)) + (((t146 * 0.003914f) + -1.000000f) * ((t146 * 0.003914f) + -1.000000f))) * -4.000000f)), 1.000000f), 0.000000f), 0.454545f) * 255.000000f))), (uint8)255)
+```
+Without the need of storing `xs`, `ys`, `ids`, `cx`, `cy`, ... everything done properly. Note with get this with a default scheduling of `compute_root` or with `Adams2019` on CPU.
+
 Incentivise development:
 
 [<img src="https://c5.patreon.com/external/logo/become_a_patron_button@2x.png" alt="Become a Patron" width="150"/>](https://www.patreon.com/SoufianeKHIAT)
