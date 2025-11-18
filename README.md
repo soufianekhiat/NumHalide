@@ -1,9 +1,46 @@
 # NumHalide
 [NumHalide](https://github.com/soufianekhiat/NumHalide) is header only, it's an attempt to have a feature parity with numpy using Halide for a Halide::Func and a Halide::Buffer<>.
 
-2 projects:
-* NumHalide: header only
-* NumHalide_Examples: use case, currently a naive Visual Studio code, will change for a [sharpmake](https://github.com/ubisoft/sharpmake) or/and [CMake](https://github.com/Kitware/CMake) settings.
+## Building
+
+### Prerequisites
+- Visual Studio 2022
+- .NET 6.0 SDK (for Sharpmake)
+- Git
+
+### Setup
+
+1. Clone the repository with submodules:
+```bash
+git clone --recursive https://github.com/soufianekhiat/NumHalide.git
+cd NumHalide
+```
+
+Or if already cloned, initialize submodules:
+```bash
+git submodule update --init --recursive
+```
+
+2. Build Sharpmake (first time only):
+```bash
+Startup.bat
+```
+
+3. Generate Visual Studio projects:
+```bash
+GenerateProjects.bat
+```
+
+4. Open the generated solution:
+```
+numhalide_win64.sln
+```
+
+## Project Structure
+* **NumHalide**: Header-only library providing NumPy-like API for Halide
+* **NumHalide_Examples**: Usage examples and demonstrations
+* **ProjectsSM/**: Sharpmake project definitions
+* **Build system**: [Sharpmake](https://github.com/ubisoft/sharpmake) (generates VS/Make/etc. projects)
 
 The point of the project is only simply having the syntaxic sugar of Numpy available for Halide user. It will allow us to have the power of Halide!
 
