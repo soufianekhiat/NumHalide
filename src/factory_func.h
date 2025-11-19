@@ -6,6 +6,7 @@
 #pragma once
 
 #include "numhalide.h"
+#include "shape.h"
 
 NS_NUM_HALIDE_BEGIN
 
@@ -148,20 +149,17 @@ Halide::Func	arange(Halide::Type type, Halide::Expr _start, Halide::Expr _stop, 
 /// @brief Return a Func filled with a constant value
 /// @param type Data type
 /// @param value Fill value
-/// @param dim Number of dimensions
+/// @param shape Shape of the array
 /// @param name Function name
 /// @return Halide::Func filled with value
-///
-/// Usage:
-///   full(Float(32), 3.14f, 2) // 2D array filled with 3.14
 inline
-Halide::Func	full(Halide::Type type, Halide::Expr value, Int32 dim, std::string const& name = "full")
+Halide::Func	full(Halide::Type type, Halide::Expr value, const shape_t& shape, std::string const& name = "full")
 {
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
 
 	// Create uniquely named variables
-	for (Int32 i = 0; i < dim; ++i) {
+	for (Int32 i = 0; i < shape.rank; ++i) {
 		vars.push_back(Halide::Var());
 	}
 
@@ -170,26 +168,53 @@ Halide::Func	full(Halide::Type type, Halide::Expr value, Int32 dim, std::string 
 	return ret;
 }
 
+/// @brief Return a Func filled with a constant value (legacy int dim)
+/// @param type Data type
+/// @param value Fill value
+/// @param dim Number of dimensions
+/// @param name Function name
+/// @return Halide::Func filled with value
+inline
+Halide::Func	full(Halide::Type type, Halide::Expr value, Int32 dim, std::string const& name = "full")
+{
+	shape_t s;
+	s.rank = dim;
+	// Extents don't matter for full() as it's infinite, but rank does for Var creation
+	return full(type, value, s, name);
+}
+
 /// @brief Return an empty (uninitialized) Func
 inline
-Halide::Func	empty(Halide::Type type, Int32 dim, std::string const& name = "empty")
+Halide::Func	empty(Halide::Type type, const shape_t& shape, std::string const& name = "empty")
 {
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
 
 	// Create uniquely named variables
-	for (Int32 i = 0; i < dim; ++i) {
+	for (Int32 i = 0; i < shape.rank; ++i) {
 		vars.push_back(Halide::Var());
 	}
 
 	return ret;
 }
 
+/// @brief Return an empty (uninitialized) Func (legacy int dim)
+inline
+Halide::Func	empty(Halide::Type type, Int32 dim, std::string const& name = "empty")
+{
+	shape_t s;
+	s.rank = dim;
+	return empty(type, s, name);
+}
+
 /// @brief Return a Func filled with ones
-/// @param type Data type
-/// @param dim Number of dimensions
-/// @param name Function name
-/// @return Halide::Func filled with 1
+inline
+Halide::Func	ones(Halide::Type type, const shape_t& shape, std::string const& name = "ones")
+{
+	return full(type, 1, shape, name);
+}
+
+/// @brief Return a Func filled with ones (legacy)
 inline
 Halide::Func	ones(Halide::Type type, Int32 const dim, std::string const& name = "ones")
 {
@@ -197,10 +222,13 @@ Halide::Func	ones(Halide::Type type, Int32 const dim, std::string const& name = 
 }
 
 /// @brief Return a Func filled with zeros
-/// @param type Data type
-/// @param dim Number of dimensions
-/// @param name Function name
-/// @return Halide::Func filled with 0
+inline
+Halide::Func	zeros(Halide::Type type, const shape_t& shape, std::string const& name = "zeros")
+{
+	return full(type, 0, shape, name);
+}
+
+/// @brief Return a Func filled with zeros (legacy)
 inline
 Halide::Func	zeros(Halide::Type type, Int32 const dim, std::string const& name = "zeros")
 {

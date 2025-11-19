@@ -8,5 +8,6 @@
 
 #include "numhalide.h"
 #include "common.h"
+#include "shape.h"
 #include "factory_func.h"
 #include "manipulation_func.h"

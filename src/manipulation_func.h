@@ -7,6 +7,7 @@
 
 #include "common.h"
 #include "numhalide.h"
+#include "shape.h"
 
 NS_NUM_HALIDE_BEGIN
 
@@ -84,37 +85,68 @@ Halide::Func reshape(Halide::Func in, std::vector<Halide::Expr> const& sizes, st
 	return ret;
 }
 
-/// @brief Stack arrays vertically (along axis 0)
-/// @param tup Vector of Funcs to stack
-/// @return Vertically stacked Func
+/// @brief Concatenate two Funcs along an axis
+/// @param a First Func
+/// @param shape_a Shape of first Func
+/// @param b Second Func
+/// @param shape_b Shape of second Func
+/// @param axis Axis to concatenate along
+/// @param name Function name
+/// @return Concatenated Func
 inline
-Halide::Func vstack(std::vector<Halide::Func> const& tup)
+Halide::Func concat(Halide::Func a, const shape_t& shape_a, Halide::Func b, const shape_t& shape_b, int axis, std::string const& name = "concat")
 {
-	// TODO: Implement vstack
-	NH_ASSERT(false && "vstack not yet implemented");
-	return Halide::Func();
+	int norm_axis = normalized_axis(axis, shape_a.rank);
+	
+	nh_require(nullptr, check_same_except(shape_a, shape_b, norm_axis), 
+		"Shapes %s and %s mismatch for concat at axis %d", 
+		shape_to_string(shape_a).c_str(), shape_to_string(shape_b).c_str(), axis);
+
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape_a.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	Halide::Expr split_point = shape_a.extents[norm_axis];
+	Halide::Var split_var = vars[norm_axis];
+
+	std::vector<Halide::Expr> args_b;
+	for (int i = 0; i < shape_a.rank; ++i) {
+		if (i == norm_axis) {
+			args_b.push_back(vars[i] - split_point);
+		} else {
+			args_b.push_back(vars[i]);
+		}
+	}
+
+	// Ensure boolean condition for select
+	Halide::Expr cond = split_var < split_point;
+	// Halide::select requires Expr arguments, a(vars) and b(args_b) return FuncRef/Expr
+	ret(vars) = Halide::select(cond, a(vars), b(args_b));
+
+	return ret;
+}
+
+/// @brief Stack arrays vertically (along axis 0)
+inline
+Halide::Func vstack(Halide::Func a, const shape_t& shape_a, Halide::Func b, const shape_t& shape_b, std::string const& name = "vstack")
+{
+	return concat(a, shape_a, b, shape_b, 0, name);
 }
 
 /// @brief Stack arrays horizontally (along axis 1)
-/// @param tup Vector of Funcs to stack
-/// @return Horizontally stacked Func
 inline
-Halide::Func hstack(std::vector<Halide::Func> const& tup)
+Halide::Func hstack(Halide::Func a, const shape_t& shape_a, Halide::Func b, const shape_t& shape_b, std::string const& name = "hstack")
 {
-	// TODO: Implement hstack
-	NH_ASSERT(false && "hstack not yet implemented");
-	return Halide::Func();
+	return concat(a, shape_a, b, shape_b, 1, name);
 }
 
 /// @brief Stack arrays depth-wise (along axis 2)
-/// @param tup Vector of Funcs to stack
-/// @return Depth-stacked Func
 inline
-Halide::Func dstack(std::vector<Halide::Func> const& tup)
+Halide::Func dstack(Halide::Func a, const shape_t& shape_a, Halide::Func b, const shape_t& shape_b, std::string const& name = "dstack")
 {
-	// TODO: Implement dstack
-	NH_ASSERT(false && "dstack not yet implemented");
-	return Halide::Func();
+	return concat(a, shape_a, b, shape_b, 2, name);
 }
 
 NS_NUM_HALIDE_END

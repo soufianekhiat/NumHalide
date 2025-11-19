@@ -29,8 +29,8 @@ namespace NumHalide
 			conf.VcxprojUserFile = new Configuration.VcxprojUserFileSettings();
 			conf.VcxprojUserFile.LocalDebuggerWorkingDirectory = @"[project.RootPath]\working_dir";
 
-			// Use static GoogleTest to avoid DLL issues
-			conf.Defines.Add("GTEST_LINKED_AS_SHARED_LIBRARY=0");
+			// Use shared GoogleTest since vcpkg seems to provide DLLs
+			conf.Defines.Add("GTEST_LINKED_AS_SHARED_LIBRARY=1");
 
 			// vcpkg will auto-link gtest based on vcpkg.json manifest at project root
 			// Make sure vcpkg.json exists in project root directory
