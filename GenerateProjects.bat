@@ -23,5 +23,3 @@ if %ERRORLEVEL% EQU 0 (
     echo ERROR: Project generation failed!
     echo.
 )
-
-pause

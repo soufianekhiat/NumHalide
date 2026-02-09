@@ -247,16 +247,9 @@ inline
 Halide::Func	identity(Halide::Type type, Int32 const dim, std::string const& name = "identity")
 {
 	Halide::Func ret(name);
-	std::vector<Halide::Var> vars;
+	Halide::Var x("x"), y("y");
 
-	// Create uniquely named variables
-	for (Int32 i = 0; i < dim; ++i) {
-		vars.push_back(Halide::Var());
-	}
-
-	ret(vars) = Halide::cast(type, 0);
-	std::vector<Halide::Var> args(dim, vars[0]);
-	ret(args) = Halide::cast(type, 1);
+	ret(x, y) = Halide::select(x == y, Halide::cast(type, 1), Halide::cast(type, 0));
 
 	return ret;
 }

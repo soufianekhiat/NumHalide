@@ -100,7 +100,11 @@ namespace NumHalide
 		public virtual void ConfigureDebug(Configuration conf, NumHalideTarget target)
 		{
 			conf.Options.Add(Sharpmake.Options.Vc.Compiler.Inline.Disable);
-			conf.Options.Add(Sharpmake.Options.Vc.Compiler.RuntimeLibrary.MultiThreadedDebugDLL);
+			// Use Release runtime even in Debug to match pre-built Halide.dll
+			// Halide binaries in extern/Halide/Libs/Release were built with Release CRT
+			// Mixing Debug CRT (MSVCRTD) with Release CRT (MSVCRT) causes heap corruption
+			// when STL objects cross the DLL boundary
+			conf.Options.Add(Sharpmake.Options.Vc.Compiler.RuntimeLibrary.MultiThreadedDLL);
 		}
 
 		[Configure(Optimization.Release)]

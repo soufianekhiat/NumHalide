@@ -26,8 +26,14 @@ namespace NumHalide
 			conf.SolutionPath = SolutionRootPath;
 
 			conf.AddProject<NumHalideProject>(target);
-			conf.AddProject<NumHalideExamplesProject>(target);
 			conf.AddProject<NumHalideTestsProject>(target);
+
+			// Example projects
+			conf.AddProject<Example00_Gradient>(target);
+			conf.AddProject<Example01_ShapeDebug>(target);
+			conf.AddProject<Example02_Factories>(target);
+			conf.AddProject<Example03_Stacking>(target);
+			conf.AddProject<Example04_Broadcasting>(target);
 		}
 	}
 

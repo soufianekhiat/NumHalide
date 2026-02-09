@@ -9,8 +9,8 @@
 ///
 /// Output: out/00_gradient.png
 
-#include "../src/numhalide_all.h"
-#include "_common/stbi_png.h"
+#include "numhalide_all.h"
+#include "stbi_png.h"
 #include <iostream>
 
 using namespace numhalide;

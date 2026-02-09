@@ -4,37 +4,85 @@ using Sharpmake;
 
 namespace NumHalide
 {
-	[Sharpmake.Generate]
-	public class NumHalideExamplesProject : CommonProject
+	// Base class for example projects
+	public class ExampleProjectBase : CommonProject
 	{
-		public NumHalideExamplesProject()
+		public ExampleProjectBase()
 		{
-			Name = "NumHalide_Examples";
-			SourceRootPath = RootPath + @"\examples";
-
-			// Exclude legacy examples for now (contains duplicate main)
-			SourceFilesExclude.Add(@"legacy_examples.cpp");
+			// Include stbi_impl from _common
+			AdditionalSourceRootPaths.Add(RootPath + @"\examples\_common");
 		}
 
 		[Configure()]
-		public void Configure(Configuration conf, NumHalideTarget target)
+		public void ConfigureExample(Configuration conf, NumHalideTarget target)
 		{
 			conf.SolutionFolder = "Examples";
 			conf.Output = Configuration.OutputType.Exe;
 
 			// NumHalide is header-only, just add include paths
 			conf.IncludePaths.Add(@"[project.RootPath]\src");
+			conf.IncludePaths.Add(@"[project.RootPath]\examples\_common");
 			conf.IncludePaths.Add(@"[project.ExternPath]/stb");
 
 			ConfigureHalide(conf, target);
 
-			// Set working directory to project root for both debug and release
+			// Set working directory to working_dir (use VS macro for consistency)
 			conf.VcxprojUserFile = new Configuration.VcxprojUserFileSettings();
-			conf.VcxprojUserFile.LocalDebuggerWorkingDirectory = @"[project.RootPath]\working_dir";
+			conf.VcxprojUserFile.LocalDebuggerWorkingDirectory = @"$(SolutionDir)working_dir";
 
 			// Link against Halide
 			conf.LibraryPaths.Add(@"[project.ExternPath]/Halide/Libs/Release");
 			conf.LibraryFiles.Add("Halide.lib");
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example00_Gradient : ExampleProjectBase
+	{
+		public Example00_Gradient()
+		{
+			Name = "Example_00_gradient";
+			SourceRootPath = RootPath + @"\examples\00_gradient";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example01_ShapeDebug : ExampleProjectBase
+	{
+		public Example01_ShapeDebug()
+		{
+			Name = "Example_01_shape_debug";
+			SourceRootPath = RootPath + @"\examples\01_shape_debug";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example02_Factories : ExampleProjectBase
+	{
+		public Example02_Factories()
+		{
+			Name = "Example_02_factories";
+			SourceRootPath = RootPath + @"\examples\02_factories";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example03_Stacking : ExampleProjectBase
+	{
+		public Example03_Stacking()
+		{
+			Name = "Example_03_stacking";
+			SourceRootPath = RootPath + @"\examples\03_stacking";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example04_Broadcasting : ExampleProjectBase
+	{
+		public Example04_Broadcasting()
+		{
+			Name = "Example_04_broadcasting";
+			SourceRootPath = RootPath + @"\examples\04_broadcasting";
 		}
 	}
 }
