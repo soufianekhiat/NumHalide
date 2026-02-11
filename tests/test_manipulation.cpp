@@ -56,19 +56,22 @@ TEST(Manipulation, HStack) {
 	// Use explicit shape_t to avoid ambiguous overload
 	shape_t s_a = { 2, 1 };
 	Halide::Func a = ones(Halide::Float(32), s_a);
-	
+
 	// b = [[0], [0]] (2x1)
 	shape_t s_b = { 2, 1 };
 	Halide::Func b = zeros(Halide::Float(32), s_b);
-	
+
 	// hstack(a, b) -> [[1, 0], [1, 0]] (2x2)
+	// In Halide buffer(x, y): x=column, y=row
+	// Row 0: [1, 0] -> result(0,0)=1, result(1,0)=0
+	// Row 1: [1, 0] -> result(0,1)=1, result(1,1)=0
 	Halide::Func c = hstack(a, s_a, b, s_b);
-	
+
 	Halide::Runtime::Buffer<float> result(2, 2);
 	c.realize(result);
-	
-	EXPECT_NEAR(result(0, 0), 1.0f, 1e-5f);
-	EXPECT_NEAR(result(1, 0), 1.0f, 1e-5f);
-	EXPECT_NEAR(result(0, 1), 0.0f, 1e-5f);
-	EXPECT_NEAR(result(1, 1), 0.0f, 1e-5f);
+
+	EXPECT_NEAR(result(0, 0), 1.0f, 1e-5f);  // row 0, col 0
+	EXPECT_NEAR(result(1, 0), 0.0f, 1e-5f);  // row 0, col 1
+	EXPECT_NEAR(result(0, 1), 1.0f, 1e-5f);  // row 1, col 0
+	EXPECT_NEAR(result(1, 1), 0.0f, 1e-5f);  // row 1, col 1
 }
