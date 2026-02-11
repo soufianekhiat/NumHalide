@@ -57,8 +57,11 @@ namespace NumHalide
 		public void ConfigureHalide(Configuration conf, NumHalideTarget target)
 		{
 			conf.IncludePaths.Add(@"[project.ExternPath]/Halide/include");
-			conf.LibraryPaths.Add(@"[project.ExternPath]/Halide/Libs/Release");
+			conf.LibraryPaths.Add(@"[project.ExternPath]/Halide/lib");
 			conf.LibraryFiles.Add("Halide.lib");
+
+			// Copy Halide.dll to output directory
+			conf.TargetCopyFiles.Add(@"[project.ExternPath]/Halide/bin/RelWithDebInfo/Halide.dll");
 		}
 
 		[Configure()]
