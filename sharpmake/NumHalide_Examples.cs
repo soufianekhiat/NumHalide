@@ -105,4 +105,44 @@ namespace NumHalide
 			SourceRootPath = RootPath + @"\examples\06_slicing";
 		}
 	}
+
+	[Sharpmake.Generate]
+	public class Example07_Random : ExampleProjectBase
+	{
+		public Example07_Random()
+		{
+			Name = "Example_07_random";
+			SourceRootPath = RootPath + @"\examples\07_random";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example08_Matmul : ExampleProjectBase
+	{
+		public Example08_Matmul()
+		{
+			Name = "Example_08_matmul";
+			SourceRootPath = RootPath + @"\examples\08_matmul";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example09_Masks : ExampleProjectBase
+	{
+		public Example09_Masks()
+		{
+			Name = "Example_09_masks";
+			SourceRootPath = RootPath + @"\examples\09_masks";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example10_Scheduling : ExampleProjectBase
+	{
+		public Example10_Scheduling()
+		{
+			Name = "Example_10_scheduling";
+			SourceRootPath = RootPath + @"\examples\10_scheduling";
+		}
+	}
 }

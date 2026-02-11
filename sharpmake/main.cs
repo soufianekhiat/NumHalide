@@ -36,6 +36,10 @@ namespace NumHalide
 			conf.AddProject<Example04_Broadcasting>(target);
 			conf.AddProject<Example05_Reductions>(target);
 			conf.AddProject<Example06_Slicing>(target);
+			conf.AddProject<Example07_Random>(target);
+			conf.AddProject<Example08_Matmul>(target);
+			conf.AddProject<Example09_Masks>(target);
+			conf.AddProject<Example10_Scheduling>(target);
 		}
 	}
 

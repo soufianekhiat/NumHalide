@@ -13,3 +13,6 @@
 #include "factory_func.h"
 #include "manipulation_func.h"
 #include "reduce.h"
+#include "la.h"
+#include "ops.h"
+#include "schedule.h"
