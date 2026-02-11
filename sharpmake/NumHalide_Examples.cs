@@ -85,4 +85,24 @@ namespace NumHalide
 			SourceRootPath = RootPath + @"\examples\04_broadcasting";
 		}
 	}
+
+	[Sharpmake.Generate]
+	public class Example05_Reductions : ExampleProjectBase
+	{
+		public Example05_Reductions()
+		{
+			Name = "Example_05_reductions";
+			SourceRootPath = RootPath + @"\examples\05_reductions";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example06_Slicing : ExampleProjectBase
+	{
+		public Example06_Slicing()
+		{
+			Name = "Example_06_slicing";
+			SourceRootPath = RootPath + @"\examples\06_slicing";
+		}
+	}
 }

@@ -171,16 +171,16 @@ inline shape_t infer_reduce(const shape_t& in, const std::vector<int>& axes, boo
 inline shape_t infer_broadcast(const shape_t& a, const shape_t& b) {
 	shape_t res;
 	res.rank = std::max(a.rank, b.rank);
-	
+
 	for (int i = 0; i < res.rank; ++i) {
 		// Align dimensions to the right
 		int a_idx = a.rank - 1 - i;
 		int b_idx = b.rank - 1 - i;
 		int res_idx = res.rank - 1 - i;
-		
+
 		int dim_a = (a_idx >= 0) ? a.extents[a_idx] : 1;
 		int dim_b = (b_idx >= 0) ? b.extents[b_idx] : 1;
-		
+
 		if (dim_a == dim_b) {
 			res.extents[res_idx] = dim_a;
 		} else if (dim_a == 1) {
@@ -188,12 +188,99 @@ inline shape_t infer_broadcast(const shape_t& a, const shape_t& b) {
 		} else if (dim_b == 1) {
 			res.extents[res_idx] = dim_a;
 		} else {
-			nh_require(nullptr, false, 
+			nh_require(nullptr, false,
 				"Operands could not be broadcast together with shapes %s and %s",
 				shape_to_string(a).c_str(), shape_to_string(b).c_str());
 		}
 	}
 	return res;
+}
+
+/// @brief Infer output shape for slice operation
+/// @param in Input shape
+/// @param axis Axis to slice along
+/// @param start Start index
+/// @param stop Stop index (exclusive)
+/// @param step Step size
+/// @return Output shape with reduced dimension at axis
+inline shape_t infer_slice(const shape_t& in, int axis, int start, int stop, int step) {
+	int norm_axis = normalized_axis(axis, in.rank);
+	int extent = in.extents[norm_axis];
+
+	// Normalize negative indices
+	if (start < 0) start += extent;
+	if (stop < 0) stop += extent;
+
+	// Clamp to valid range
+	start = std::max(0, std::min(start, extent));
+	stop = std::max(0, std::min(stop, extent));
+
+	nh_require(nullptr, step != 0, "Slice step cannot be zero");
+
+	// Compute output size
+	int out_size = 0;
+	if (step > 0 && stop > start) {
+		out_size = (stop - start + step - 1) / step;
+	} else if (step < 0 && start > stop) {
+		out_size = (start - stop - step - 1) / (-step);
+	}
+
+	shape_t res = in;
+	res.extents[norm_axis] = out_size;
+	return res;
+}
+
+/// @brief Infer output shape for transpose operation
+/// @param in Input shape
+/// @param axes Permutation of dimensions
+/// @return Transposed shape
+inline shape_t infer_transpose(const shape_t& in, const std::vector<int>& axes) {
+	nh_require(nullptr, static_cast<int>(axes.size()) == in.rank,
+		"Transpose axes length %d does not match rank %d",
+		static_cast<int>(axes.size()), in.rank);
+
+	// Check for valid permutation
+	std::vector<bool> seen(in.rank, false);
+	for (int ax : axes) {
+		int norm = normalized_axis(ax, in.rank);
+		nh_require(nullptr, !seen[norm], "Duplicate axis %d in transpose", ax);
+		seen[norm] = true;
+	}
+
+	shape_t res;
+	res.rank = in.rank;
+	for (int i = 0; i < in.rank; ++i) {
+		int src_axis = normalized_axis(axes[i], in.rank);
+		res.extents[i] = in.extents[src_axis];
+	}
+	return res;
+}
+
+/// @brief Compute axes permutation for moveaxis
+/// @param rank Tensor rank
+/// @param src Source axis position
+/// @param dst Destination axis position
+/// @return Permutation array for transpose
+inline std::vector<int> compute_moveaxis_perm(int rank, int src, int dst) {
+	int norm_src = normalized_axis(src, rank);
+	int norm_dst = normalized_axis(dst, rank);
+
+	std::vector<int> axes;
+	for (int i = 0; i < rank; ++i) {
+		axes.push_back(i);
+	}
+
+	// Remove src and insert at dst
+	axes.erase(axes.begin() + norm_src);
+	axes.insert(axes.begin() + norm_dst, norm_src);
+
+	// Now axes[i] tells us where output dimension i came from
+	// But we need the inverse: for each output dim, which input dim maps there
+	std::vector<int> result(rank);
+	for (int i = 0; i < rank; ++i) {
+		result[i] = axes[i];
+	}
+	return result;
 }
 
 NS_NUM_HALIDE_END

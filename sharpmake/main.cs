@@ -34,6 +34,8 @@ namespace NumHalide
 			conf.AddProject<Example02_Factories>(target);
 			conf.AddProject<Example03_Stacking>(target);
 			conf.AddProject<Example04_Broadcasting>(target);
+			conf.AddProject<Example05_Reductions>(target);
+			conf.AddProject<Example06_Slicing>(target);
 		}
 	}
 

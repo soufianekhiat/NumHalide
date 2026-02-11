@@ -158,4 +158,388 @@ Halide::Func dstack(Halide::Func a, const shape_t& shape_a, Halide::Func b, cons
     return concat(a, shape_a, b, shape_b, 2, name);
 }
 
+// -----------------------------------------------------------------------------
+// Slicing Operations
+// -----------------------------------------------------------------------------
+
+/// @brief Extract a slice of a Func along an axis
+/// @param f Input Func
+/// @param in_shape Shape of input
+/// @param axis Axis to slice along
+/// @param start Start index (can be negative)
+/// @param stop Stop index exclusive (can be negative)
+/// @param step Step size (default 1)
+/// @param name Function name
+/// @return Sliced Func
+///
+/// Usage:
+///   // For a 3x4 matrix, get rows 0-2 with step 1
+///   Func sliced = slice(mat, {3, 4}, 0, 0, 2, 1);
+inline
+Halide::Func slice(Halide::Func f, const shape_t& in_shape, int axis, int start, int stop, int step = 1, std::string const& name = "slice")
+{
+	int norm_axis = normalized_axis(axis, in_shape.rank);
+	int extent = in_shape.extents[norm_axis];
+
+	// Normalize negative indices
+	if (start < 0) start += extent;
+	if (stop < 0) stop += extent;
+
+	// Clamp to valid range
+	start = std::max(0, std::min(start, extent));
+	stop = std::max(0, std::min(stop, extent));
+
+	nh_require(nullptr, step != 0, "Slice step cannot be zero");
+
+	Halide::Func ret(name);
+	std::vector<Halide::Var> out_vars;
+	for (int i = 0; i < in_shape.rank; ++i) {
+		out_vars.push_back(Halide::Var());
+	}
+
+	// Build input arguments
+	// Shape convention: extents[0] is outermost, extents[rank-1] is innermost
+	// Halide convention: vars[0] is innermost, vars[rank-1] is outermost
+	std::vector<Halide::Expr> in_args;
+	for (int shape_dim = in_shape.rank - 1; shape_dim >= 0; --shape_dim) {
+		int var_idx = in_shape.rank - 1 - shape_dim;
+		if (shape_dim == norm_axis) {
+			// Map output index to input index
+			in_args.push_back(start + out_vars[var_idx] * step);
+		} else {
+			in_args.push_back(out_vars[var_idx]);
+		}
+	}
+
+	ret(out_vars) = f(in_args);
+	return ret;
+}
+
+/// @brief Take elements from a Func along an axis using indices
+/// @param f Input Func
+/// @param in_shape Shape of input
+/// @param indices Vector of indices to take
+/// @param axis Axis to take along
+/// @param name Function name
+/// @return Func with gathered elements
+///
+/// Usage:
+///   // For a 4x3 matrix, take rows 0 and 2
+///   Func taken = take(mat, {4, 3}, {0, 2}, 0);
+inline
+Halide::Func take(Halide::Func f, const shape_t& in_shape, const std::vector<int>& indices, int axis, std::string const& name = "take")
+{
+	int norm_axis = normalized_axis(axis, in_shape.rank);
+	int extent = in_shape.extents[norm_axis];
+	int n_indices = static_cast<int>(indices.size());
+
+	// Validate indices
+	for (int idx : indices) {
+		int norm_idx = idx < 0 ? idx + extent : idx;
+		nh_require(nullptr, norm_idx >= 0 && norm_idx < extent,
+			"Index %d out of bounds for axis %d with size %d", idx, axis, extent);
+	}
+
+	// Build a lookup table for indices
+	Halide::Func idx_table("idx_table");
+	Halide::Var i;
+	Halide::Expr idx_expr = 0;
+	for (int j = n_indices - 1; j >= 0; --j) {
+		int norm_idx = indices[j] < 0 ? indices[j] + extent : indices[j];
+		idx_expr = Halide::select(i == j, norm_idx, idx_expr);
+	}
+	idx_table(i) = idx_expr;
+
+	Halide::Func ret(name);
+	std::vector<Halide::Var> out_vars;
+	for (int d = 0; d < in_shape.rank; ++d) {
+		out_vars.push_back(Halide::Var());
+	}
+
+	// Build input arguments
+	std::vector<Halide::Expr> in_args;
+	for (int shape_dim = in_shape.rank - 1; shape_dim >= 0; --shape_dim) {
+		int var_idx = in_shape.rank - 1 - shape_dim;
+		if (shape_dim == norm_axis) {
+			// Look up the actual index from the table
+			in_args.push_back(idx_table(out_vars[var_idx]));
+		} else {
+			in_args.push_back(out_vars[var_idx]);
+		}
+	}
+
+	ret(out_vars) = f(in_args);
+	return ret;
+}
+
+/// @brief Infer output shape for take operation
+inline shape_t infer_take(const shape_t& in, int axis, int n_indices) {
+	int norm_axis = normalized_axis(axis, in.rank);
+	shape_t res = in;
+	res.extents[norm_axis] = n_indices;
+	return res;
+}
+
+// -----------------------------------------------------------------------------
+// Transpose and Axis Reordering
+// -----------------------------------------------------------------------------
+
+/// @brief Transpose (permute dimensions of) a Func
+/// @param f Input Func
+/// @param in_shape Shape of input
+/// @param axes Permutation of axes. axes[i] specifies which input axis goes to output position i.
+/// @param name Function name
+/// @return Transposed Func
+///
+/// Usage:
+///   // For a 2x3 matrix, transpose to 3x2
+///   Func transposed = transpose(mat, {2, 3}, {1, 0});
+inline
+Halide::Func transpose(Halide::Func f, const shape_t& in_shape, const std::vector<int>& axes, std::string const& name = "transpose")
+{
+	nh_require(nullptr, static_cast<int>(axes.size()) == in_shape.rank,
+		"Transpose axes length %d does not match rank %d",
+		static_cast<int>(axes.size()), in_shape.rank);
+
+	// Normalize axes and check for valid permutation
+	std::vector<int> norm_axes;
+	std::vector<bool> seen(in_shape.rank, false);
+	for (int ax : axes) {
+		int norm = normalized_axis(ax, in_shape.rank);
+		nh_require(nullptr, !seen[norm], "Duplicate axis %d in transpose", ax);
+		seen[norm] = true;
+		norm_axes.push_back(norm);
+	}
+
+	Halide::Func ret(name);
+	std::vector<Halide::Var> out_vars;
+	for (int i = 0; i < in_shape.rank; ++i) {
+		out_vars.push_back(Halide::Var());
+	}
+
+	// Build input arguments
+	// out_shape.extents[out_dim] = in_shape.extents[axes[out_dim]]
+	// For Halide indexing:
+	// - Shape dim 0 is outermost, shape dim rank-1 is innermost
+	// - Halide var 0 is innermost, var rank-1 is outermost
+	//
+	// We need to map output vars to input args
+	// in_args are ordered: [in_dim_rank-1, ..., in_dim_0] (innermost to outermost input dims)
+	std::vector<Halide::Expr> in_args(in_shape.rank);
+
+	for (int out_shape_dim = 0; out_shape_dim < in_shape.rank; ++out_shape_dim) {
+		int in_shape_dim = norm_axes[out_shape_dim];
+		// out_shape_dim -> out_var at index (rank - 1 - out_shape_dim)
+		int out_var_idx = in_shape.rank - 1 - out_shape_dim;
+		// in_shape_dim -> in_arg at index (rank - 1 - in_shape_dim)
+		int in_arg_idx = in_shape.rank - 1 - in_shape_dim;
+		in_args[in_arg_idx] = out_vars[out_var_idx];
+	}
+
+	ret(out_vars) = f(in_args);
+	return ret;
+}
+
+/// @brief Transpose a 2D Func (swap rows and columns)
+/// @param f Input Func (2D)
+/// @param in_shape Shape of input (must be rank 2)
+/// @param name Function name
+/// @return Transposed Func
+inline
+Halide::Func transpose(Halide::Func f, const shape_t& in_shape, std::string const& name = "transpose")
+{
+	nh_require(nullptr, in_shape.rank == 2, "2D transpose requires rank 2, got %d", in_shape.rank);
+	return transpose(f, in_shape, {1, 0}, name);
+}
+
+/// @brief Move an axis from one position to another
+/// @param f Input Func
+/// @param in_shape Shape of input
+/// @param src Source axis position
+/// @param dst Destination axis position
+/// @param name Function name
+/// @return Func with axis moved
+///
+/// Usage:
+///   // Move axis 0 to position 2 for a 3D tensor
+///   Func moved = moveaxis(tensor, {2, 3, 4}, 0, 2);
+inline
+Halide::Func moveaxis(Halide::Func f, const shape_t& in_shape, int src, int dst, std::string const& name = "moveaxis")
+{
+	std::vector<int> perm = compute_moveaxis_perm(in_shape.rank, src, dst);
+	return transpose(f, in_shape, perm, name);
+}
+
+/// @brief Infer output shape for moveaxis
+inline shape_t infer_moveaxis(const shape_t& in, int src, int dst) {
+	std::vector<int> perm = compute_moveaxis_perm(in.rank, src, dst);
+	return infer_transpose(in, perm);
+}
+
+// -----------------------------------------------------------------------------
+// Additional Dimension Manipulation
+// -----------------------------------------------------------------------------
+
+/// @brief Add a new axis of size 1 at the specified position
+/// @param f Input Func
+/// @param in_shape Shape of input
+/// @param axis Position to insert new axis
+/// @param name Function name
+/// @return Func with expanded dimension
+inline
+Halide::Func expand_dims(Halide::Func f, const shape_t& in_shape, int axis, std::string const& name = "expand_dims")
+{
+	int new_rank = in_shape.rank + 1;
+	int norm_axis = axis < 0 ? axis + new_rank : axis;
+	nh_require(nullptr, norm_axis >= 0 && norm_axis <= in_shape.rank,
+		"Axis %d out of bounds for expand_dims with rank %d", axis, in_shape.rank);
+
+	Halide::Func ret(name);
+	std::vector<Halide::Var> out_vars;
+	for (int i = 0; i < new_rank; ++i) {
+		out_vars.push_back(Halide::Var());
+	}
+
+	// Build input arguments by skipping the new axis
+	std::vector<Halide::Expr> in_args;
+	for (int in_dim = in_shape.rank - 1; in_dim >= 0; --in_dim) {
+		// Map input shape dim to output shape dim
+		int out_dim = in_dim < norm_axis ? in_dim : in_dim + 1;
+		int out_var_idx = new_rank - 1 - out_dim;
+		in_args.push_back(out_vars[out_var_idx]);
+	}
+
+	ret(out_vars) = f(in_args);
+	return ret;
+}
+
+/// @brief Infer output shape for expand_dims
+inline shape_t infer_expand_dims(const shape_t& in, int axis) {
+	int new_rank = in.rank + 1;
+	int norm_axis = axis < 0 ? axis + new_rank : axis;
+
+	shape_t res;
+	res.rank = new_rank;
+	int in_idx = 0;
+	for (int i = 0; i < new_rank; ++i) {
+		if (i == norm_axis) {
+			res.extents[i] = 1;
+		} else {
+			res.extents[i] = in.extents[in_idx++];
+		}
+	}
+	return res;
+}
+
+/// @brief Remove axes of size 1
+/// @param f Input Func
+/// @param in_shape Shape of input
+/// @param axis Optional specific axis to squeeze (if -1, squeeze all size-1 axes)
+/// @param name Function name
+/// @return Func with squeezed dimensions
+inline
+Halide::Func squeeze(Halide::Func f, const shape_t& in_shape, int axis = -1, std::string const& name = "squeeze")
+{
+	std::vector<int> axes_to_keep;
+	std::vector<int> axes_to_squeeze;
+
+	if (axis == -1) {
+		// Squeeze all size-1 axes
+		for (int i = 0; i < in_shape.rank; ++i) {
+			if (in_shape.extents[i] == 1) {
+				axes_to_squeeze.push_back(i);
+			} else {
+				axes_to_keep.push_back(i);
+			}
+		}
+	} else {
+		int norm_axis = normalized_axis(axis, in_shape.rank);
+		nh_require(nullptr, in_shape.extents[norm_axis] == 1,
+			"Cannot squeeze axis %d with size %d (must be 1)",
+			axis, in_shape.extents[norm_axis]);
+		for (int i = 0; i < in_shape.rank; ++i) {
+			if (i == norm_axis) {
+				axes_to_squeeze.push_back(i);
+			} else {
+				axes_to_keep.push_back(i);
+			}
+		}
+	}
+
+	if (axes_to_squeeze.empty()) {
+		// Nothing to squeeze
+		Halide::Func ret(name);
+		std::vector<Halide::Var> vars;
+		for (int i = 0; i < in_shape.rank; ++i) {
+			vars.push_back(Halide::Var());
+		}
+		ret(vars) = f(vars);
+		return ret;
+	}
+
+	int new_rank = static_cast<int>(axes_to_keep.size());
+	if (new_rank == 0) {
+		// Result is scalar - return as 1D with single element
+		Halide::Func ret(name);
+		Halide::Var x;
+		std::vector<Halide::Expr> zeros(in_shape.rank, 0);
+		ret(x) = f(zeros);
+		return ret;
+	}
+
+	Halide::Func ret(name);
+	std::vector<Halide::Var> out_vars;
+	for (int i = 0; i < new_rank; ++i) {
+		out_vars.push_back(Halide::Var());
+	}
+
+	// Build input arguments
+	std::vector<Halide::Expr> in_args(in_shape.rank);
+
+	// Map output vars to input positions
+	for (int out_dim = 0; out_dim < new_rank; ++out_dim) {
+		int in_dim = axes_to_keep[out_dim];
+		int out_var_idx = new_rank - 1 - out_dim;
+		int in_arg_idx = in_shape.rank - 1 - in_dim;
+		in_args[in_arg_idx] = out_vars[out_var_idx];
+	}
+
+	// Set squeezed dimensions to 0
+	for (int in_dim : axes_to_squeeze) {
+		int in_arg_idx = in_shape.rank - 1 - in_dim;
+		in_args[in_arg_idx] = 0;
+	}
+
+	ret(out_vars) = f(in_args);
+	return ret;
+}
+
+/// @brief Infer output shape for squeeze
+inline shape_t infer_squeeze(const shape_t& in, int axis = -1) {
+	shape_t res;
+	res.rank = 0;
+
+	if (axis == -1) {
+		for (int i = 0; i < in.rank; ++i) {
+			if (in.extents[i] != 1) {
+				res.extents[res.rank++] = in.extents[i];
+			}
+		}
+	} else {
+		int norm_axis = normalized_axis(axis, in.rank);
+		for (int i = 0; i < in.rank; ++i) {
+			if (i != norm_axis) {
+				res.extents[res.rank++] = in.extents[i];
+			}
+		}
+	}
+
+	if (res.rank == 0) {
+		res.rank = 1;
+		res.extents[0] = 1;
+	}
+
+	return res;
+}
+
 NS_NUM_HALIDE_END

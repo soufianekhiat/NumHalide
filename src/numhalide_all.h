@@ -12,3 +12,4 @@
 #include "broadcast.h"
 #include "factory_func.h"
 #include "manipulation_func.h"
+#include "reduce.h"
