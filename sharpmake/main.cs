@@ -40,6 +40,7 @@ namespace NumHalide
 			conf.AddProject<Example08_Matmul>(target);
 			conf.AddProject<Example09_Masks>(target);
 			conf.AddProject<Example10_Scheduling>(target);
+			conf.AddProject<Example11_Statistics>(target);
 		}
 	}
 

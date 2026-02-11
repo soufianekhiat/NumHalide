@@ -145,4 +145,14 @@ namespace NumHalide
 			SourceRootPath = RootPath + @"\examples\10_scheduling";
 		}
 	}
+
+	[Sharpmake.Generate]
+	public class Example11_Statistics : ExampleProjectBase
+	{
+		public Example11_Statistics()
+		{
+			Name = "Example_11_statistics";
+			SourceRootPath = RootPath + @"\examples\11_statistics";
+		}
+	}
 }
