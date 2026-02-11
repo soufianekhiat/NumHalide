@@ -31,17 +31,22 @@ inline Halide::Func broadcast_to(Halide::Func f, const shape_t& src_shape, const
     for (int i = 0; i < dst_shape.rank; ++i) vars.push_back(Halide::Var());
 
     std::vector<Halide::Expr> args;
-    // Map source dimensions to destination variables (reverse order)
+    args.resize(src_shape.rank);
+    // Map source dimensions to destination variables
+    // Shape convention: extents[0] is outermost, extents[rank-1] is innermost
+    // Halide convention: args[0] is innermost, args[rank-1] is outermost
     for (int i = 0; i < src_shape.rank; ++i) {
         int src_dim = src_shape.extents[i];
         int dst_idx = i + offset; // index in dst_shape
         int dst_dim = dst_shape.extents[dst_idx];
         // Halide Var ordering: vars[0] is innermost, vars[rank-1] outermost
         int var_idx = dst_shape.rank - 1 - dst_idx;
+        // Place in args at position matching Halide convention (inner first)
+        int arg_idx = src_shape.rank - 1 - i;
         if (src_dim == dst_dim) {
-            args.push_back(vars[var_idx]);
+            args[arg_idx] = vars[var_idx];
         } else if (src_dim == 1) {
-            args.push_back(0);
+            args[arg_idx] = 0;
         } else {
             nh_require(nullptr, false, "Cannot broadcast dim %d of size %d to %d", i, src_dim, dst_dim);
         }
