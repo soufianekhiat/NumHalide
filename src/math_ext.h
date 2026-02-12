@@ -17,7 +17,7 @@ NS_NUM_HALIDE_BEGIN
 
 /// @brief Compute 2^x element-wise
 inline
-Halide::Func nh_exp2(Halide::Func f, const shape_t& shape, std::string const& name = "exp2")
+Halide::Func exp2(Halide::Func f, const shape_t& shape, std::string const& name = "exp2")
 {
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
@@ -31,7 +31,7 @@ Halide::Func nh_exp2(Halide::Func f, const shape_t& shape, std::string const& na
 
 /// @brief Compute base-2 logarithm: log(x) / log(2)
 inline
-Halide::Func nh_log2(Halide::Func f, const shape_t& shape, std::string const& name = "log2")
+Halide::Func log2(Halide::Func f, const shape_t& shape, std::string const& name = "log2")
 {
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
@@ -45,7 +45,7 @@ Halide::Func nh_log2(Halide::Func f, const shape_t& shape, std::string const& na
 
 /// @brief Compute base-10 logarithm: log(x) / log(10)
 inline
-Halide::Func nh_log10(Halide::Func f, const shape_t& shape, std::string const& name = "log10")
+Halide::Func log10(Halide::Func f, const shape_t& shape, std::string const& name = "log10")
 {
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
@@ -59,7 +59,7 @@ Halide::Func nh_log10(Halide::Func f, const shape_t& shape, std::string const& n
 
 /// @brief Compute exp(x) - 1, accurate for small x
 inline
-Halide::Func nh_expm1(Halide::Func f, const shape_t& shape, std::string const& name = "expm1")
+Halide::Func expm1(Halide::Func f, const shape_t& shape, std::string const& name = "expm1")
 {
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
@@ -73,7 +73,7 @@ Halide::Func nh_expm1(Halide::Func f, const shape_t& shape, std::string const& n
 
 /// @brief Compute log(1 + x), accurate for small x
 inline
-Halide::Func nh_log1p(Halide::Func f, const shape_t& shape, std::string const& name = "log1p")
+Halide::Func log1p(Halide::Func f, const shape_t& shape, std::string const& name = "log1p")
 {
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
@@ -186,7 +186,7 @@ Halide::Func heaviside(Halide::Func f, Halide::Expr h0, const shape_t& shape, st
 
 /// @brief Compute floating-point modulus: a - floor(a/b) * b
 inline
-Halide::Func nh_fmod(Halide::Func a, Halide::Func b, const shape_t& shape, std::string const& name = "fmod")
+Halide::Func fmod(Halide::Func a, Halide::Func b, const shape_t& shape, std::string const& name = "fmod")
 {
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;

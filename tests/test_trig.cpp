@@ -25,7 +25,8 @@ TEST(Trig, Sin) {
 		vals[3]
 	);
 
-	Halide::Func result = nh_sin(input, s);
+	Halide::Func result("result");
+	result(x) = Halide::sin(input(x));
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -48,7 +49,8 @@ TEST(Trig, Cos) {
 		3.14159265f
 	);
 
-	Halide::Func result = nh_cos(input, s);
+	Halide::Func result("result");
+	result(x) = Halide::cos(input(x));
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -70,7 +72,8 @@ TEST(Trig, Tan) {
 		-0.7853982f
 	);
 
-	Halide::Func result = nh_tan(input, s);
+	Halide::Func result("result");
+	result(x) = Halide::tan(input(x));
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -91,7 +94,8 @@ TEST(Trig, Asin) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 0.0f, x == 1, 0.5f, 1.0f);
 
-	Halide::Func result = nh_asin(input, s);
+	Halide::Func result("result");
+	result(x) = Halide::asin(input(x));
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -108,7 +112,8 @@ TEST(Trig, Acos) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 1.0f, x == 1, 0.5f, 0.0f);
 
-	Halide::Func result = nh_acos(input, s);
+	Halide::Func result("result");
+	result(x) = Halide::acos(input(x));
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -125,7 +130,8 @@ TEST(Trig, Atan) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 0.0f, x == 1, 1.0f, -1.0f);
 
-	Halide::Func result = nh_atan(input, s);
+	Halide::Func result("result");
+	result(x) = Halide::atan(input(x));
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -146,7 +152,8 @@ TEST(Trig, Sinh) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 0.0f, x == 1, 1.0f, -1.0f);
 
-	Halide::Func result = nh_sinh(input, s);
+	Halide::Func result("result");
+	result(x) = Halide::sinh(input(x));
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -163,7 +170,8 @@ TEST(Trig, Cosh) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 0.0f, x == 1, 1.0f, -1.0f);
 
-	Halide::Func result = nh_cosh(input, s);
+	Halide::Func result("result");
+	result(x) = Halide::cosh(input(x));
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -180,7 +188,8 @@ TEST(Trig, Tanh) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 0.0f, x == 1, 1.0f, -1.0f);
 
-	Halide::Func result = nh_tanh(input, s);
+	Halide::Func result("result");
+	result(x) = Halide::tanh(input(x));
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -201,7 +210,7 @@ TEST(Trig, Asinh) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 0.0f, x == 1, 1.0f, -1.0f);
 
-	Halide::Func result = nh_asinh(input, s);
+	Halide::Func result = asinh(input, s);
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -218,7 +227,7 @@ TEST(Trig, Acosh) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 1.0f, x == 1, 2.0f, 10.0f);
 
-	Halide::Func result = nh_acosh(input, s);
+	Halide::Func result = acosh(input, s);
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -235,7 +244,7 @@ TEST(Trig, Atanh) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 0.0f, x == 1, 0.5f, -0.5f);
 
-	Halide::Func result = nh_atanh(input, s);
+	Halide::Func result = atanh(input, s);
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -292,7 +301,8 @@ TEST(Trig, Atan2) {
 	fy(x) = Halide::select(x == 0, 0.0f, x == 1, 1.0f, x == 2, 1.0f, -1.0f);
 	fx(x) = Halide::select(x == 0, 1.0f, x == 1, 0.0f, x == 2, 1.0f, 0.0f);
 
-	Halide::Func result = nh_atan2(fy, fx, s);
+	Halide::Func result("result");
+	result(x) = Halide::atan2(fy(x), fx(x));
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);

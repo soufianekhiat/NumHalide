@@ -150,7 +150,8 @@ TEST(Ops, Abs) {
 	Halide::Var x;
 	input(x) = Halide::cast<float>(x - 2);  // -2, -1, 0, 1, 2
 
-	Halide::Func result = numhalide::nh_abs(input, s);
+	Halide::Func result("result");
+	result(x) = Halide::abs(input(x));
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -188,7 +189,8 @@ TEST(Ops, Sqrt) {
 	Halide::Var x;
 	input(x) = Halide::cast<float>(x * x);  // 0, 1, 4, 9
 
-	Halide::Func result = numhalide::nh_sqrt(input, s);
+	Halide::Func result("result");
+	result(x) = Halide::sqrt(input(x));
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -207,8 +209,10 @@ TEST(Ops, ExpLog) {
 	input(x) = Halide::cast<float>(x + 1);  // 1, 2, 3
 
 	// exp(log(x)) should equal x
-	Halide::Func log_result = numhalide::nh_log(input, s);
-	Halide::Func exp_log = numhalide::nh_exp(log_result, s);
+	Halide::Func log_result("log_result");
+	log_result(x) = Halide::log(input(x));
+	Halide::Func exp_log("exp_log");
+	exp_log(x) = Halide::exp(log_result(x));
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	exp_log.realize(out);
@@ -225,7 +229,8 @@ TEST(Ops, Pow) {
 	Halide::Var x;
 	input(x) = Halide::cast<float>(x + 1);  // 1, 2, 3
 
-	Halide::Func result = numhalide::nh_pow(input, s, 2.0f);
+	Halide::Func result("result");
+	result(x) = Halide::pow(input(x), 2.0f);
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -242,9 +247,12 @@ TEST(Ops, FloorCeilRound) {
 	Halide::Var x;
 	input(x) = Halide::cast<float>(x) * 0.5f + 0.3f;  // 0.3, 0.8, 1.3
 
-	Halide::Func floor_result = numhalide::nh_floor(input, s);
-	Halide::Func ceil_result = numhalide::nh_ceil(input, s);
-	Halide::Func round_result = numhalide::nh_round(input, s);
+	Halide::Func floor_result("floor_result");
+	floor_result(x) = Halide::floor(input(x));
+	Halide::Func ceil_result("ceil_result");
+	ceil_result(x) = Halide::ceil(input(x));
+	Halide::Func round_result("round_result");
+	round_result(x) = Halide::round(input(x));
 
 	Halide::Runtime::Buffer<float> floor_out(s.extents[0]);
 	Halide::Runtime::Buffer<float> ceil_out(s.extents[0]);

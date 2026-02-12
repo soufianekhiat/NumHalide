@@ -214,24 +214,6 @@ Halide::Func reshape_func(Halide::Func f, const shape_t& in_shape, const shape_t
 // Mathematical Operations
 // -----------------------------------------------------------------------------
 
-/// @brief Compute absolute value
-/// @param f Input Func
-/// @param shape Shape of input
-/// @param name Function name
-/// @return Func with absolute values
-inline
-Halide::Func nh_abs(Halide::Func f, const shape_t& shape, std::string const& name = "abs")
-{
-	Halide::Func ret(name);
-	std::vector<Halide::Var> vars;
-	for (int i = 0; i < shape.rank; ++i) {
-		vars.push_back(Halide::Var());
-	}
-
-	ret(vars) = Halide::abs(f(vars));
-	return ret;
-}
-
 /// @brief Compute sign (-1, 0, or 1)
 /// @param f Input Func
 /// @param shape Shape of input
@@ -253,152 +235,6 @@ Halide::Func sign(Halide::Func f, const shape_t& shape, std::string const& name 
 		val < 0, Halide::cast(type, -1),
 		Halide::cast(type, 0)
 	);
-	return ret;
-}
-
-/// @brief Compute floor
-/// @param f Input Func
-/// @param shape Shape of input
-/// @param name Function name
-/// @return Func with floor values
-inline
-Halide::Func nh_floor(Halide::Func f, const shape_t& shape, std::string const& name = "nh_floor")
-{
-	Halide::Func ret(name);
-	std::vector<Halide::Var> vars;
-	for (int i = 0; i < shape.rank; ++i) {
-		vars.push_back(Halide::Var());
-	}
-
-	ret(vars) = Halide::floor(f(vars));
-	return ret;
-}
-
-/// @brief Compute ceiling
-/// @param f Input Func
-/// @param shape Shape of input
-/// @param name Function name
-/// @return Func with ceiling values
-inline
-Halide::Func nh_ceil(Halide::Func f, const shape_t& shape, std::string const& name = "nh_ceil")
-{
-	Halide::Func ret(name);
-	std::vector<Halide::Var> vars;
-	for (int i = 0; i < shape.rank; ++i) {
-		vars.push_back(Halide::Var());
-	}
-
-	ret(vars) = Halide::ceil(f(vars));
-	return ret;
-}
-
-/// @brief Round to nearest integer
-/// @param f Input Func
-/// @param shape Shape of input
-/// @param name Function name
-/// @return Func with rounded values
-inline
-Halide::Func nh_round(Halide::Func f, const shape_t& shape, std::string const& name = "round")
-{
-	Halide::Func ret(name);
-	std::vector<Halide::Var> vars;
-	for (int i = 0; i < shape.rank; ++i) {
-		vars.push_back(Halide::Var());
-	}
-
-	ret(vars) = Halide::round(f(vars));
-	return ret;
-}
-
-/// @brief Compute square root
-/// @param f Input Func
-/// @param shape Shape of input
-/// @param name Function name
-/// @return Func with sqrt values
-inline
-Halide::Func nh_sqrt(Halide::Func f, const shape_t& shape, std::string const& name = "sqrt")
-{
-	Halide::Func ret(name);
-	std::vector<Halide::Var> vars;
-	for (int i = 0; i < shape.rank; ++i) {
-		vars.push_back(Halide::Var());
-	}
-
-	ret(vars) = Halide::sqrt(f(vars));
-	return ret;
-}
-
-/// @brief Compute exponential
-/// @param f Input Func
-/// @param shape Shape of input
-/// @param name Function name
-/// @return Func with exp values
-inline
-Halide::Func nh_exp(Halide::Func f, const shape_t& shape, std::string const& name = "exp")
-{
-	Halide::Func ret(name);
-	std::vector<Halide::Var> vars;
-	for (int i = 0; i < shape.rank; ++i) {
-		vars.push_back(Halide::Var());
-	}
-
-	ret(vars) = Halide::exp(f(vars));
-	return ret;
-}
-
-/// @brief Compute natural logarithm
-/// @param f Input Func
-/// @param shape Shape of input
-/// @param name Function name
-/// @return Func with log values
-inline
-Halide::Func nh_log(Halide::Func f, const shape_t& shape, std::string const& name = "log")
-{
-	Halide::Func ret(name);
-	std::vector<Halide::Var> vars;
-	for (int i = 0; i < shape.rank; ++i) {
-		vars.push_back(Halide::Var());
-	}
-
-	ret(vars) = Halide::log(f(vars));
-	return ret;
-}
-
-/// @brief Compute power
-/// @param f Base Func
-/// @param shape Shape of input
-/// @param exponent Power to raise to
-/// @param name Function name
-/// @return Func with power values
-inline
-Halide::Func nh_pow(Halide::Func f, const shape_t& shape, Halide::Expr exponent, std::string const& name = "pow")
-{
-	Halide::Func ret(name);
-	std::vector<Halide::Var> vars;
-	for (int i = 0; i < shape.rank; ++i) {
-		vars.push_back(Halide::Var());
-	}
-
-	ret(vars) = Halide::pow(f(vars), exponent);
-	return ret;
-}
-
-/// @brief Compute element-wise power
-/// @param base Base Func
-/// @param exp Exponent Func
-/// @param shape Shape of inputs
-/// @param name Function name
-/// @return Func with power values
-inline
-Halide::Func nh_pow(Halide::Func base, Halide::Func exp, const shape_t& shape, std::string const& name = "pow")
-{
-	Halide::Func ret(name);
-	std::vector<Halide::Var> vars;
-	for (int i = 0; i < shape.rank; ++i) {
-		vars.push_back(Halide::Var());
-	}
-
-	ret(vars) = Halide::pow(base(vars), exp(vars));
 	return ret;
 }
 
@@ -595,7 +431,7 @@ Halide::Func logical_or(Halide::Func a, Halide::Func b, const shape_t& shape, st
 
 /// @brief Element-wise logical NOT
 inline
-Halide::Func nh_logical_not(Halide::Func a, const shape_t& shape, std::string const& name = "nh_logical_not")
+Halide::Func logical_not(Halide::Func a, const shape_t& shape, std::string const& name = "logical_not")
 {
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;

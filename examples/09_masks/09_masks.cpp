@@ -57,7 +57,8 @@ int main(int argc, char **argv) {
 		std::cout << "  Creating V-shape pattern..." << std::endl;
 		Halide::Func centered("centered");
 		centered(x, y) = Halide::cast<float>(0.5f) - gradient(x, y);
-		Halide::Func v_pattern = numhalide::nh_abs(centered, s_tile, "v_pattern");
+		Halide::Func v_pattern("v_pattern");
+		v_pattern(x, y) = Halide::abs(centered(x, y));
 
 		// 4. Sign-based: shows -1, 0, +1 regions
 		std::cout << "  Creating sign pattern..." << std::endl;

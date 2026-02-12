@@ -19,7 +19,7 @@ TEST(MathExt, Exp2) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 0.0f, x == 1, 1.0f, x == 2, 2.0f, 3.0f);
 
-	Halide::Func result = nh_exp2(input, s);
+	Halide::Func result = exp2(input, s);
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -37,7 +37,7 @@ TEST(MathExt, Log2) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 1.0f, x == 1, 4.0f, 8.0f);
 
-	Halide::Func result = nh_log2(input, s);
+	Halide::Func result = log2(input, s);
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -54,7 +54,7 @@ TEST(MathExt, Log10) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 1.0f, x == 1, 100.0f, 1000.0f);
 
-	Halide::Func result = nh_log10(input, s);
+	Halide::Func result = log10(input, s);
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -71,7 +71,7 @@ TEST(MathExt, Expm1) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 0.0f, x == 1, 1.0f, -1.0f);
 
-	Halide::Func result = nh_expm1(input, s);
+	Halide::Func result = expm1(input, s);
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -88,7 +88,7 @@ TEST(MathExt, Log1p) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 0.0f, x == 1, 1.0f, 9.0f);
 
-	Halide::Func result = nh_log1p(input, s);
+	Halide::Func result = log1p(input, s);
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);
@@ -208,7 +208,7 @@ TEST(MathExt, Fmod) {
 	fa(x) = Halide::select(x == 0, 5.0f, x == 1, 7.5f, 10.0f);
 	fb(x) = Halide::select(x == 0, 3.0f, x == 1, 2.5f, 3.0f);
 
-	Halide::Func result = nh_fmod(fa, fb, s);
+	Halide::Func result = fmod(fa, fb, s);
 
 	Halide::Runtime::Buffer<float> out(s.extents[0]);
 	result.realize(out);

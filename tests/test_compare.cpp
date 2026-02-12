@@ -183,7 +183,7 @@ TEST(Compare, LogicalNot) {
     Halide::Var x;
     a(x) = Halide::select(x < 2, 1, 0);  // [1, 1, 0, 0]
 
-    auto result = nh_logical_not(a, shape, "not_result");
+    auto result = logical_not(a, shape, "not_result");
 
     Halide::Runtime::Buffer<int32_t> out(4);
     result.realize(out);

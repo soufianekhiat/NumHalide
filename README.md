@@ -23,18 +23,17 @@
 
 ### Comparisons and Logic
 - **Comparisons**: `equal`, `not_equal`, `greater`, `less`, `greater_equal`, `less_equal`
-- **Logical Operations**: `logical_and`, `logical_or`, `nh_logical_not`, `logical_xor`
+- **Logical Operations**: `logical_and`, `logical_or`, `logical_not`, `logical_xor`
 - **Special Value Detection**: `isnan_func`, `isinf_func`, `isfinite_func`, `isneginf`, `isposinf`
 - **Tolerance Checks**: `isclose`, `allclose`
 - **Array Comparison**: `array_equal`, `array_equiv`
 - **Bitwise**: `bitwise_and`, `bitwise_or`, `bitwise_xor`, `bitwise_not`, `left_shift`, `right_shift`, `popcount`
 
 ### Math and Trigonometry
-- **Element-wise Ops**: `where`, `clip`, `astype`, `nh_abs`, `nh_sqrt`, `nh_exp`, `nh_log`
-- **Trigonometric**: `nh_sin`, `nh_cos`, `nh_tan`, `nh_asin`, `nh_acos`, `nh_atan`, `nh_atan2`, `hypot`
-- **Hyperbolic**: `nh_sinh`, `nh_cosh`, `nh_tanh`, `nh_asinh`, `nh_acosh`, `nh_atanh`
-- **Angular**: `degrees`, `radians`
-- **Extended Math**: `nh_exp2`, `nh_log2`, `nh_log10`, `nh_expm1`, `nh_log1p`, `square`, `cbrt`, `reciprocal`, `sinc`, `heaviside`, `nh_fmod`, `remainder`, `nan_to_num`
+- **Element-wise Ops**: `where`, `clip`, `astype`, `sign` + Halide builtins (`Halide::abs`, `Halide::sqrt`, `Halide::exp`, `Halide::log`, `Halide::pow`, `Halide::floor`, `Halide::ceil`, `Halide::round`)
+- **Trigonometric**: `hypot`, `degrees`, `radians` + Halide builtins (`Halide::sin`, `Halide::cos`, `Halide::tan`, `Halide::asin`, `Halide::acos`, `Halide::atan`, `Halide::atan2`)
+- **Hyperbolic**: `asinh`, `acosh`, `atanh` + Halide builtins (`Halide::sinh`, `Halide::cosh`, `Halide::tanh`)
+- **Extended Math**: `exp2`, `log2`, `log10`, `expm1`, `log1p`, `square`, `cbrt`, `reciprocal`, `sinc`, `heaviside`, `fmod`, `remainder`, `nan_to_num`
 - **Polynomials**: `polyval`, `chebyshev_t`, `legendre_p`
 
 ### Linear Algebra and Sorting
@@ -349,7 +348,7 @@ Expr out = exp(-(cx * cx + cy * cy) / 0.25f);
 | `np.less_equal(a, b)` | `less_equal(a, b, shape)` |
 | `np.logical_and(a, b)` | `logical_and(a, b, shape)` |
 | `np.logical_or(a, b)` | `logical_or(a, b, shape)` |
-| `np.logical_not(a)` | `nh_logical_not(a, shape)` |
+| `np.logical_not(a)` | `logical_not(a, shape)` |
 | `np.logical_xor(a, b)` | `logical_xor(a, b, shape)` |
 | `np.isnan(a)` | `isnan_func(a, shape)` |
 | `np.isinf(a)` | `isinf_func(a, shape)` |
@@ -423,32 +422,37 @@ Expr out = exp(-(cx * cx + cy * cy) / 0.25f);
 
 | NumPy | NumHalide |
 | --- | --- |
-| `np.where(cond, a, b)` | `ops::where(cond, a, b, shape)` |
-| `np.clip(a, lo, hi)` | `ops::clip(a, shape, lo, hi)` |
-| `a.astype(np.int32)` | `ops::astype(a, shape, Int(32))` |
-| `np.abs(a)` | `ops::nh_abs(a, shape)` |
-| `np.sqrt(a)` | `ops::nh_sqrt(a, shape)` |
-| `np.exp(a)` | `ops::nh_exp(a, shape)` |
-| `np.log(a)` | `ops::nh_log(a, shape)` |
+| `np.where(cond, a, b)` | `where(cond, a, b, shape)` |
+| `np.clip(a, lo, hi)` | `clip(a, shape, lo, hi)` |
+| `a.astype(np.int32)` | `astype(a, shape, Int(32))` |
+| `np.sign(a)` | `sign(a, shape)` |
+| `np.abs(a)` | `Halide::abs(a(Halide::_))` |
+| `np.sqrt(a)` | `Halide::sqrt(a(Halide::_))` |
+| `np.exp(a)` | `Halide::exp(a(Halide::_))` |
+| `np.log(a)` | `Halide::log(a(Halide::_))` |
+| `np.pow(a, b)` | `Halide::pow(a(Halide::_), b(Halide::_))` |
+| `np.floor(a)` | `Halide::floor(a(Halide::_))` |
+| `np.ceil(a)` | `Halide::ceil(a(Halide::_))` |
+| `np.round(a)` | `Halide::round(a(Halide::_))` |
 
 ### Trigonometric Functions
 
 | NumPy | NumHalide |
 | --- | --- |
-| `np.sin(a)` | `nh_sin(a, shape)` |
-| `np.cos(a)` | `nh_cos(a, shape)` |
-| `np.tan(a)` | `nh_tan(a, shape)` |
-| `np.arcsin(a)` | `nh_asin(a, shape)` |
-| `np.arccos(a)` | `nh_acos(a, shape)` |
-| `np.arctan(a)` | `nh_atan(a, shape)` |
-| `np.arctan2(y, x)` | `nh_atan2(y, x, shape)` |
+| `np.sin(a)` | `Halide::sin(a(Halide::_))` |
+| `np.cos(a)` | `Halide::cos(a(Halide::_))` |
+| `np.tan(a)` | `Halide::tan(a(Halide::_))` |
+| `np.arcsin(a)` | `Halide::asin(a(Halide::_))` |
+| `np.arccos(a)` | `Halide::acos(a(Halide::_))` |
+| `np.arctan(a)` | `Halide::atan(a(Halide::_))` |
+| `np.arctan2(y, x)` | `Halide::atan2(y(Halide::_), x(Halide::_))` |
 | `np.hypot(x, y)` | `hypot(x, y, shape)` |
-| `np.sinh(a)` | `nh_sinh(a, shape)` |
-| `np.cosh(a)` | `nh_cosh(a, shape)` |
-| `np.tanh(a)` | `nh_tanh(a, shape)` |
-| `np.arcsinh(a)` | `nh_asinh(a, shape)` |
-| `np.arccosh(a)` | `nh_acosh(a, shape)` |
-| `np.arctanh(a)` | `nh_atanh(a, shape)` |
+| `np.sinh(a)` | `Halide::sinh(a(Halide::_))` |
+| `np.cosh(a)` | `Halide::cosh(a(Halide::_))` |
+| `np.tanh(a)` | `Halide::tanh(a(Halide::_))` |
+| `np.arcsinh(a)` | `asinh(a, shape)` |
+| `np.arccosh(a)` | `acosh(a, shape)` |
+| `np.arctanh(a)` | `atanh(a, shape)` |
 | `np.degrees(a)` | `degrees(a, shape)` |
 | `np.radians(a)` | `radians(a, shape)` |
 
@@ -456,17 +460,17 @@ Expr out = exp(-(cx * cx + cy * cy) / 0.25f);
 
 | NumPy | NumHalide |
 | --- | --- |
-| `np.exp2(a)` | `nh_exp2(a, shape)` |
-| `np.log2(a)` | `nh_log2(a, shape)` |
-| `np.log10(a)` | `nh_log10(a, shape)` |
-| `np.expm1(a)` | `nh_expm1(a, shape)` |
-| `np.log1p(a)` | `nh_log1p(a, shape)` |
+| `np.exp2(a)` | `exp2(a, shape)` |
+| `np.log2(a)` | `log2(a, shape)` |
+| `np.log10(a)` | `log10(a, shape)` |
+| `np.expm1(a)` | `expm1(a, shape)` |
+| `np.log1p(a)` | `log1p(a, shape)` |
 | `np.square(a)` | `square(a, shape)` |
 | `np.cbrt(a)` | `cbrt(a, shape)` |
 | `np.reciprocal(a)` | `reciprocal(a, shape)` |
 | `np.sinc(a)` | `sinc(a, shape)` |
 | `np.heaviside(a, h0)` | `heaviside(a, h0, shape)` |
-| `np.fmod(a, b)` | `nh_fmod(a, b, shape)` |
+| `np.fmod(a, b)` | `fmod(a, b, shape)` |
 | `np.remainder(a, b)` | `remainder(a, b, shape)` |
 | `np.nan_to_num(a)` | `nan_to_num(a, shape)` |
 
