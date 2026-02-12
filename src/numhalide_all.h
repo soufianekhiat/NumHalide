@@ -1,0 +1,44 @@
+/// @file numhalide_all.h
+/// @brief Umbrella header for NumHalide library
+///
+/// Include this file to access all NumHalide functionality.
+/// NumHalide is a header-only C++20 library providing NumPy-like API built on Halide.
+
+#pragma once
+
+#include "numhalide.h"
+#include "common.h"
+#include "shape.h"
+#include "broadcast.h"
+#include "factory_func.h"
+#include "manipulation_func.h"
+#include "reduce.h"
+#include "stats.h"
+#include "la.h"
+#include "ops.h"
+#include "schedule.h"
+#include "sort.h"
+#include "set_ops.h"
+#include "conv.h"
+#include "interp.h"
+#include "fft.h"
+#include "trig.h"
+#include "math_ext.h"
+#include "cumulative.h"
+#include "split.h"
+#include "compare_ext.h"
+#include "stats_ext.h"
+#include "random_ext.h"
+#include "array_compare.h"
+#include "bitwise.h"
+#include "window.h"
+#include "rfft.h"
+#include "gradient.h"
+#include "morphology.h"
+#include "color.h"
+#include "polynomial.h"
+#include "distance.h"
+#include "stencil.h"
+#include "histogram.h"
+#include "threshold.h"
+#include "fft_ext.h"

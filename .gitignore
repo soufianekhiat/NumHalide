@@ -30,11 +30,25 @@
 *.exe
 *.out
 *.app
-NumHalide/NumHalide/x64
-NumHalide/x64
-NumHalide/NumHalide_Examples/x64
-NumHalide/.vs
 *.pdb
 *.exp
 *.png
 *.7z
+
+# Sharpmake and build output
+*.sharpmake.cs.dll
+projects/
+*.log
+tools/sharpmake/
+tmp/
+numhalide_win64.sln
+.vs/
+working_dir/
+*.map
+vcpkg_installed/
+
+# Old structure
+NumHalide/
+WorkingDir/
+*.tlog
+examples/x64
