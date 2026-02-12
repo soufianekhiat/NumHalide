@@ -270,6 +270,7 @@ Halide::Func bitonic_sort(Halide::Func input, int size, std::string const& name 
     // Rename final result
     Halide::Func result(name);
     result(x) = next(x);
+    result.compute_root();
     return result;
 }
 

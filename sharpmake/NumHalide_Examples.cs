@@ -187,6 +187,16 @@ namespace NumHalide
 	}
 
 	[Sharpmake.Generate]
+	public class Example15_SetOps : ExampleProjectBase
+	{
+		public Example15_SetOps()
+		{
+			Name = "Example_15_set_ops";
+			SourceRootPath = RootPath + @"\examples\15_set_ops";
+		}
+	}
+
+	[Sharpmake.Generate]
 	public class Example16_Sorting : ExampleProjectBase
 	{
 		public Example16_Sorting()
@@ -203,6 +213,16 @@ namespace NumHalide
 		{
 			Name = "Example_17_linalg_ext";
 			SourceRootPath = RootPath + @"\examples\17_linalg_ext";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example18_FFT : ExampleProjectBase
+	{
+		public Example18_FFT()
+		{
+			Name = "Example_18_fft";
+			SourceRootPath = RootPath + @"\examples\18_fft";
 		}
 	}
 

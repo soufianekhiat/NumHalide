@@ -44,7 +44,9 @@ namespace NumHalide
 			conf.AddProject<Example12_BoolReduce>(target);
 			conf.AddProject<Example13_ManipulationExt>(target);
 			conf.AddProject<Example14_Comparisons>(target);
+			conf.AddProject<Example15_SetOps>(target);
 			conf.AddProject<Example16_Sorting>(target);
+			conf.AddProject<Example18_FFT>(target);
 			conf.AddProject<Example17_LinalgExt>(target);
 			conf.AddProject<Example19_Convolution>(target);
 			conf.AddProject<Example20_Interpolation>(target);

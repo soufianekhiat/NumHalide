@@ -18,5 +18,7 @@
 #include "ops.h"
 #include "schedule.h"
 #include "sort.h"
+#include "set_ops.h"
 #include "conv.h"
 #include "interp.h"
+#include "fft.h"
