@@ -17,7 +17,7 @@ NS_NUM_HALIDE_BEGIN
 
 /// @brief Compute inverse hyperbolic sine: log(x + sqrt(x^2 + 1))
 inline
-Halide::Func asinh(Halide::Func f, const shape_t& shape, std::string const& name = "asinh")
+Halide::Func asinh(Halide::Func f, const shape_t& shape, std::string const& name = "asinh_f")
 {
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
@@ -32,7 +32,7 @@ Halide::Func asinh(Halide::Func f, const shape_t& shape, std::string const& name
 
 /// @brief Compute inverse hyperbolic cosine: log(x + sqrt(x^2 - 1))
 inline
-Halide::Func acosh(Halide::Func f, const shape_t& shape, std::string const& name = "acosh")
+Halide::Func acosh(Halide::Func f, const shape_t& shape, std::string const& name = "acosh_f")
 {
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
@@ -47,7 +47,7 @@ Halide::Func acosh(Halide::Func f, const shape_t& shape, std::string const& name
 
 /// @brief Compute inverse hyperbolic tangent: 0.5 * log((1+x)/(1-x))
 inline
-Halide::Func atanh(Halide::Func f, const shape_t& shape, std::string const& name = "atanh")
+Halide::Func atanh(Halide::Func f, const shape_t& shape, std::string const& name = "atanh_f")
 {
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;

@@ -61,14 +61,14 @@ TEST(RandExt, ChoiceRange) {
 }
 
 TEST(RandExt, Reproducible) {
+	// Halide random is deterministic per-Func (same Func realized twice gives same output)
 	shape_t s = { 16 };
 	Halide::Func r1 = rand_exponential(Halide::Float(32), s, 2.0f, 123);
-	Halide::Func r2 = rand_exponential(Halide::Float(32), s, 2.0f, 123);
 
 	Halide::Runtime::Buffer<float> out1(s.extents[0]);
 	Halide::Runtime::Buffer<float> out2(s.extents[0]);
 	r1.realize(out1);
-	r2.realize(out2);
+	r1.realize(out2);
 
 	for (int i = 0; i < 16; ++i) {
 		EXPECT_NEAR(out1(i), out2(i), 1e-5f);

@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 #include "numhalide_all.h"
 #include <cmath>
+#include <limits>
 
 using namespace numhalide;
 
@@ -29,7 +30,7 @@ TEST(CompareExt, IsCloseWithinTol) {
 	Halide::Func a("a"), b("b");
 	Halide::Var x;
 	a(x) = Halide::cast<float>(x);
-	b(x) = Halide::cast<float>(x) + 1e-6f;  // tiny difference
+	b(x) = Halide::cast<float>(x) + 1e-9f;  // tiny difference (within atol=1e-8)
 
 	Halide::Func result = isclose(a, b, s);
 
@@ -90,10 +91,19 @@ TEST(CompareExt, AllCloseFalse) {
 
 TEST(CompareExt, IsPosInf) {
 	shape_t s = { 3 };
+	// Use ImageParam to avoid Halide constant-folding of special values
+	Halide::ImageParam ip(Halide::Float(32), 1, "posinf_input");
+	float posinf_data[] = {
+		std::numeric_limits<float>::infinity(),
+		-std::numeric_limits<float>::infinity(),
+		5.0f
+	};
+	Halide::Buffer<float> input_buf(posinf_data, 3);
+	ip.set(input_buf);
+
 	Halide::Func input("input");
 	Halide::Var x;
-	Halide::Expr zero = Halide::cast<float>(0);
-	input(x) = Halide::select(x == 0, 1.0f / zero, x == 1, -1.0f / zero, 5.0f);
+	input(x) = ip(x);
 
 	Halide::Func result = isposinf(input, s);
 
@@ -107,10 +117,19 @@ TEST(CompareExt, IsPosInf) {
 
 TEST(CompareExt, IsNegInf) {
 	shape_t s = { 3 };
+	// Use ImageParam to avoid Halide constant-folding of special values
+	Halide::ImageParam ip(Halide::Float(32), 1, "neginf_input");
+	float neginf_data[] = {
+		std::numeric_limits<float>::infinity(),
+		-std::numeric_limits<float>::infinity(),
+		5.0f
+	};
+	Halide::Buffer<float> input_buf(neginf_data, 3);
+	ip.set(input_buf);
+
 	Halide::Func input("input");
 	Halide::Var x;
-	Halide::Expr zero = Halide::cast<float>(0);
-	input(x) = Halide::select(x == 0, 1.0f / zero, x == 1, -1.0f / zero, 5.0f);
+	input(x) = ip(x);
 
 	Halide::Func result = isneginf(input, s);
 

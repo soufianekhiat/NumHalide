@@ -234,7 +234,7 @@ TEST(MathExt, Remainder) {
 	// IEEE remainder: a - round(a/b)*b
 	EXPECT_NEAR(out(0), -1.0f, 1e-5f);  // 5 - round(5/3)*3 = 5 - 2*3 = -1
 	EXPECT_NEAR(out(1), -1.0f, 1e-5f);  // 7 - round(7/4)*4 = 7 - 2*4 = -1
-	EXPECT_NEAR(out(2), -1.0f, 1e-5f);  // -3 - round(-3/2)*2 = -3 - (-1)*2 = -1
+	EXPECT_NEAR(out(2), 1.0f, 1e-5f);  // -3 - round(-3/2)*2 = -3 - (-2)*2 = 1
 }
 
 // -----------------------------------------------------------------------------
@@ -244,16 +244,19 @@ TEST(MathExt, Remainder) {
 TEST(MathExt, NanToNum) {
 	shape_t s = { 3 };
 
+	// Use ImageParam to avoid Halide constant-folding of special values
+	Halide::ImageParam input_param(Halide::Float(32), 1, "nan_input");
+	float nan_data[] = {
+		std::numeric_limits<float>::quiet_NaN(),
+		std::numeric_limits<float>::infinity(),
+		-std::numeric_limits<float>::infinity()
+	};
+	Halide::Buffer<float> input_buf(nan_data, 3);
+	input_param.set(input_buf);
+
 	Halide::Func input("input");
 	Halide::Var x;
-	// Create: NaN, +Inf, -Inf using division tricks
-	// 0/0 -> NaN, 1/0 -> +Inf, -1/0 -> -Inf
-	Halide::Expr zero = Halide::cast<float>(0);
-	input(x) = Halide::select(
-		x == 0, zero / zero,
-		x == 1, 1.0f / zero,
-		-1.0f / zero
-	);
+	input(x) = input_param(x);
 
 	Halide::Func result = nan_to_num(input, s, 0.0f, 999.0f, -999.0f);
 

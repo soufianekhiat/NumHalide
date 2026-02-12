@@ -10,8 +10,8 @@ TEST(Histogram, UniformBins) {
 	shape_t s = { 4 };
 	Halide::Func input("input");
 	Halide::Var x;
-	// Values: 0.1, 0.3, 0.5, 0.7 -> bins 0, 1, 2, 3 with 4 bins in [0,1)
-	input(x) = Halide::select(x == 0, 0.1f, x == 1, 0.3f, x == 2, 0.5f, 0.7f);
+	// Values: 0.1, 0.3, 0.5, 0.8 -> bins 0, 1, 2, 3 with 4 bins in [0,1)
+	input(x) = Halide::select(x == 0, 0.1f, x == 1, 0.3f, x == 2, 0.5f, 0.8f);
 
 	Halide::Func result = histogram_1d(input, s, 4, 0.0f, 1.0f);
 
