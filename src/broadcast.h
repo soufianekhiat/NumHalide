@@ -74,7 +74,6 @@ NH_UNARY_OP(abs, Halide::abs(a(vars)))
 NH_UNARY_OP(exp, Halide::exp(a(vars)))
 NH_UNARY_OP(log, Halide::log(a(vars)))
 NH_UNARY_OP(sqrt, Halide::sqrt(a(vars)))
-NH_UNARY_OP(logical_not, !a(vars))
 
 #undef NH_UNARY_OP
 

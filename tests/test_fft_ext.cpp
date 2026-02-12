@@ -7,6 +7,20 @@
 
 using namespace numhalide;
 
+// Helper to extract real/imag parts from 2D complex Func (Tuple)
+static Halide::Func ext_real_2d(Halide::Func f, const std::string& name = "real") {
+	Halide::Func ret(name);
+	Halide::Var x("x"), y("y");
+	ret(x, y) = f(x, y)[0];
+	return ret;
+}
+static Halide::Func ext_imag_2d(Halide::Func f, const std::string& name = "imag") {
+	Halide::Func ret(name);
+	Halide::Var x("x"), y("y");
+	ret(x, y) = f(x, y)[1];
+	return ret;
+}
+
 TEST(FFTExt, CrossPowerSpectrumSelf) {
 	// CPS of a signal with itself should have unit magnitude
 	Halide::Func a("a");
@@ -18,13 +32,18 @@ TEST(FFTExt, CrossPowerSpectrumSelf) {
 
 	Halide::Func result = cross_power_spectrum(a, a, 4, 4);
 
-	Halide::Runtime::Buffer<float> re(4, 4), im(4, 4);
-	Halide::Realization out({ re, im });
-	result.realize(out);
+	auto re_func = ext_real_2d(result, "re");
+	auto im_func = ext_imag_2d(result, "im");
 
-	// CPS(A,A) = |A|^2/|A|^2 = 1+0j (normalized)
+	Halide::Runtime::Buffer<float> re(4, 4), im(4, 4);
+	re_func.realize(re);
+	im_func.realize(im);
+
+	// CPS(A,A) = |A|^2/|A|^2 = 1+0j (normalized) where A != 0
 	for (int j = 0; j < 4; ++j) {
 		for (int i = 0; i < 4; ++i) {
+			// Skip origin where input is (0,0) — CPS is undefined there
+			if (i == 0 && j == 0) continue;
 			float mag = std::sqrt(re(i, j) * re(i, j) + im(i, j) * im(i, j));
 			EXPECT_NEAR(mag, 1.0f, 1e-3f);
 		}
@@ -39,9 +58,12 @@ TEST(FFTExt, CrossPowerSpectrumReal) {
 
 	Halide::Func result = cross_power_spectrum(a, a, 4, 4);
 
+	auto re_func = ext_real_2d(result, "re");
+	auto im_func = ext_imag_2d(result, "im");
+
 	Halide::Runtime::Buffer<float> re(4, 4), im(4, 4);
-	Halide::Realization out({ re, im });
-	result.realize(out);
+	re_func.realize(re);
+	im_func.realize(im);
 
 	// For real signals: A*conj(A) = |A|^2 + 0i, so normalized = 1+0i
 	for (int j = 0; j < 4; ++j) {

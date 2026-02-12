@@ -13,7 +13,7 @@ TEST(StatsExt, Ptp1D) {
 	Halide::Var x;
 	input(x) = Halide::select(x == 0, 3.0f, x == 1, 1.0f, x == 2, 7.0f, 2.0f);
 
-	Halide::Func result = ptp(input, s);
+	Halide::Func result = stats::ptp(input, s);
 
 	Halide::Runtime::Buffer<float> out(1);
 	result.realize(out);
@@ -27,7 +27,7 @@ TEST(StatsExt, PtpConstant) {
 	Halide::Var x;
 	input(x) = 5.0f;
 
-	Halide::Func result = ptp(input, s);
+	Halide::Func result = stats::ptp(input, s);
 
 	Halide::Runtime::Buffer<float> out(1);
 	result.realize(out);
@@ -42,7 +42,7 @@ TEST(StatsExt, Average) {
 	input(x) = Halide::cast<float>(x + 1);    // 1, 2, 3
 	weights(x) = Halide::select(x == 0, 3.0f, x == 1, 2.0f, 1.0f);  // 3, 2, 1
 
-	Halide::Func result = average(input, weights, s);
+	Halide::Func result = stats::average(input, weights, s);
 
 	Halide::Runtime::Buffer<float> out(1);
 	result.realize(out);
@@ -58,7 +58,7 @@ TEST(StatsExt, AverageUniform) {
 	input(x) = Halide::cast<float>(x + 1);  // 1, 2, 3, 4
 	weights(x) = 1.0f;
 
-	Halide::Func result = average(input, weights, s);
+	Halide::Func result = stats::average(input, weights, s);
 
 	Halide::Runtime::Buffer<float> out(1);
 	result.realize(out);
@@ -103,7 +103,7 @@ TEST(StatsExt, Digitize) {
 	// Bin edges: 0, 1, 2, 3, 4
 	bins(x) = Halide::cast<float>(x);
 
-	Halide::Func result = digitize(input, bins, s, 5);
+	Halide::Func result = stats::digitize(input, bins, s, 5);
 
 	Halide::Runtime::Buffer<int32_t> out(s.extents[0]);
 	result.realize(out);
