@@ -4,26 +4,63 @@
 
 ## Features
 
+### Core Array Operations
 - **Factory Functions**: `zeros`, `ones`, `full`, `linspace`, `arange`, `eye`, `meshgrid`
 - **Random Generation**: `rand_uniform`, `rand_normal`, `rand_int` with seed control
+- **Extended Random**: `rand_exponential`, `rand_bernoulli`, `rand_choice`
 - **Shape Manipulation**: `reshape`, `transpose`, `expand_dims`, `squeeze`, `moveaxis`, `flip`, `flipud`, `fliplr`, `rot90`, `roll`, `tile`, `repeat`, `pad`
 - **Slicing**: `slice`, `take` with NumPy-style indexing
+- **Splitting**: `split`, `split_at`, `hsplit`, `vsplit`
 - **Stacking**: `concat`, `stack`, `vstack`, `hstack`
 - **Broadcasting**: Automatic shape broadcasting for binary operations
+
+### Reductions and Statistics
 - **Reductions**: `sum`, `mean`, `min`, `max`, `prod` with axis support
 - **Statistics**: `var`, `std` with axis support and ddof parameter
+- **Extended Statistics**: `median`, `ptp`, `average`, `histogram`, `digitize`
 - **Boolean Reductions**: `reduce_any`, `reduce_all`, `count_nonzero`
+- **Cumulative**: `cumsum`, `cumprod`, `diff`
+
+### Comparisons and Logic
 - **Comparisons**: `equal`, `not_equal`, `greater`, `less`, `greater_equal`, `less_equal`
 - **Logical Operations**: `logical_and`, `logical_or`, `nh_logical_not`, `logical_xor`
-- **Special Value Detection**: `isnan_func`, `isinf_func`, `isfinite_func`
+- **Special Value Detection**: `isnan_func`, `isinf_func`, `isfinite_func`, `isneginf`, `isposinf`
+- **Tolerance Checks**: `isclose`, `allclose`
+- **Array Comparison**: `array_equal`, `array_equiv`
+- **Bitwise**: `bitwise_and`, `bitwise_or`, `bitwise_xor`, `bitwise_not`, `left_shift`, `right_shift`, `popcount`
+
+### Math and Trigonometry
+- **Element-wise Ops**: `where`, `clip`, `astype`, `nh_abs`, `nh_sqrt`, `nh_exp`, `nh_log`
+- **Trigonometric**: `nh_sin`, `nh_cos`, `nh_tan`, `nh_asin`, `nh_acos`, `nh_atan`, `nh_atan2`, `hypot`
+- **Hyperbolic**: `nh_sinh`, `nh_cosh`, `nh_tanh`, `nh_asinh`, `nh_acosh`, `nh_atanh`
+- **Angular**: `degrees`, `radians`
+- **Extended Math**: `nh_exp2`, `nh_log2`, `nh_log10`, `nh_expm1`, `nh_log1p`, `square`, `cbrt`, `reciprocal`, `sinc`, `heaviside`, `nh_fmod`, `remainder`, `nan_to_num`
+- **Polynomials**: `polyval`, `chebyshev_t`, `legendre_p`
+
+### Linear Algebra and Sorting
+- **Linear Algebra**: `matmul`, `dot`, `outer`, `matvec`, `trace`, `diag`, `norm`, `frobenius_norm`, `triu`, `tril`, `det2x2`, `det3x3`, `inv2x2`
 - **Sorting**: `argmin`, `argmax` (1D and 2D with axis), `bitonic_sort`, `bitonic_argsort`, `searchsorted`
 - **Set Operations**: `mark_unique`, `count_unique`, `unique`, `in1d`, `intersect1d`, `union1d`, `setdiff1d`
-- **Linear Algebra**: `matmul`, `dot`, `outer`, `matvec`, `trace`, `diag`, `norm`, `frobenius_norm`, `triu`, `tril`, `det2x2`, `det3x3`, `inv2x2`
+- **Distance**: `cdist_euclidean`, `cdist_manhattan`, `cosine_similarity`
+
+### Signal Processing
+- **FFT**: `fft`, `ifft`, `fft2d`, `ifft2d`, `fftshift`, `power_spectrum`
+- **Real FFT**: `rfft`, `irfft`, `rfft2d`, `irfft2d`, `fftfreq`, `rfftfreq`
+- **Spectral**: `cross_power_spectrum`, `spectral_centroid`
 - **Convolution**: `convolve1d`, `convolve2d`, `convolve2d_separable`, `correlate2d`
 - **Convolution Kernels**: `box_kernel`, `gaussian_kernel_1d`, `sobel_x_kernel`, `sobel_y_kernel`, `laplacian_kernel`
+- **Window Functions**: `hanning`, `hamming`, `blackman`, `bartlett`, `kaiser`
+
+### Image Processing
 - **Interpolation**: `interp1d_uniform`, `resize_bilinear`, `resize_nearest`, `zoom`, `map_coordinates`
-- **FFT**: `fft`, `ifft`, `fft2d`, `ifft2d`, `fftshift`, `power_spectrum`
-- **Element-wise Ops**: `where`, `clip`, `astype`, math functions
+- **Morphology**: `dilate`, `erode`, `morph_open`, `morph_close`, `morph_gradient`, `top_hat`
+- **Color Spaces**: `rgb_to_gray`, `gray_to_rgb`, `rgb_to_hsv`, `hsv_to_rgb`, `rgb_to_yuv`, `yuv_to_rgb`
+- **Histogram**: `histogram_1d`, `cumulative_histogram`, `histogram_equalize`, `apply_lut`, `gamma_correct`
+- **Thresholding**: `threshold_binary`, `threshold_trunc`, `threshold_tozero`, `threshold_otsu`, `threshold_adaptive`
+- **Gradient**: `gradient_1d`, `gradient_2d`, `laplacian`, `divergence`
+- **Stencils**: `stencil_apply`, `jacobi_step`, `heat_diffusion_step`
+
+### Performance
 - **Scheduling Helpers**: `auto_tile`, `vectorize`, `parallel`, `full_optimize_2d`
 
 ## Building
@@ -65,7 +102,7 @@ NumHalide_win64.sln
 
 ```
 NumHalide/
-├── src/                    # Header-only library
+├── src/                    # Header-only library (35 headers)
 │   ├── numhalide_all.h     # Umbrella include
 │   ├── shape.h             # Shape utilities
 │   ├── broadcast.h         # Broadcasting
@@ -80,8 +117,28 @@ NumHalide/
 │   ├── conv.h              # Convolution and correlation
 │   ├── interp.h            # Interpolation and resampling
 │   ├── fft.h               # FFT (1D/2D forward, inverse, power spectrum)
-│   └── schedule.h          # Scheduling helpers
-├── examples/               # Usage examples
+│   ├── schedule.h          # Scheduling helpers
+│   ├── trig.h              # Trigonometric functions
+│   ├── math_ext.h          # Extended math (exp2, log2, sinc, etc.)
+│   ├── cumulative.h        # Cumulative sum, product, diff
+│   ├── split.h             # Array splitting
+│   ├── compare_ext.h       # isclose, allclose, isneginf, isposinf
+│   ├── stats_ext.h         # median, ptp, average, histogram, digitize
+│   ├── random_ext.h        # Exponential, Bernoulli, choice distributions
+│   ├── array_compare.h     # array_equal, array_equiv
+│   ├── bitwise.h           # Bitwise operations and popcount
+│   ├── window.h            # Window functions (Hanning, Hamming, etc.)
+│   ├── rfft.h              # Real FFT, frequency bins
+│   ├── gradient.h          # Gradient, Laplacian, divergence
+│   ├── morphology.h        # Dilate, erode, open, close, top-hat
+│   ├── color.h             # RGB/HSV/YUV color space conversions
+│   ├── polynomial.h        # Polynomial eval, Chebyshev, Legendre
+│   ├── distance.h          # Euclidean, Manhattan, cosine distance
+│   ├── stencil.h           # Stencil apply, Jacobi, heat diffusion
+│   ├── histogram.h         # Histogram, equalization, LUT, gamma
+│   ├── threshold.h         # Binary, Otsu, adaptive thresholding
+│   └── fft_ext.h           # Cross power spectrum, spectral centroid
+├── examples/               # 41 usage examples (each produces a 512x512 PNG)
 │   ├── 00_gradient/        # Basic gradient image
 │   ├── 01_shape_debug/     # Shape debugging
 │   ├── 02_factories/       # Factory functions
@@ -97,13 +154,33 @@ NumHalide/
 │   ├── 12_bool_reduce/     # Boolean reductions
 │   ├── 13_manipulation_ext/# Flip, rotate, tile, pad
 │   ├── 14_comparisons/     # Comparison and logical operations
+│   ├── 15_set_ops/         # Set operations
 │   ├── 16_sorting/         # Sorting and search
 │   ├── 17_linalg_ext/      # Extended linear algebra
-│   ├── 15_set_ops/         # Set operations
 │   ├── 18_fft/             # FFT transforms
 │   ├── 19_convolution/     # Filter gallery
-│   └── 20_interpolation/   # Image resizing and warping
-├── tests/                  # GoogleTest suite (205 tests)
+│   ├── 20_interpolation/   # Image resizing and warping
+│   ├── 21_trigonometry/    # Trigonometric functions
+│   ├── 22_math/            # Extended math functions
+│   ├── 23_cumulative/      # Cumulative operations
+│   ├── 24_splitting/       # Array splitting
+│   ├── 25_closeness/       # Tolerance comparisons
+│   ├── 26_statistics_ext/  # Extended statistics
+│   ├── 27_random_ext/      # Random distributions
+│   ├── 28_array_compare/   # Array comparison
+│   ├── 29_bitwise/         # Bitwise operations
+│   ├── 30_windows/         # Window functions
+│   ├── 31_rfft/            # Real FFT
+│   ├── 32_gradient/        # Image gradients
+│   ├── 33_morphology/      # Morphological operations
+│   ├── 34_color/           # Color space conversions
+│   ├── 35_polynomial/      # Polynomial evaluation
+│   ├── 36_distance/        # Distance computations
+│   ├── 37_stencil/         # Stencil / PDE operations
+│   ├── 38_histogram/       # Histogram and gamma
+│   ├── 39_spectral/        # Spectral analysis
+│   └── 40_threshold/       # Thresholding techniques
+├── tests/                  # GoogleTest suite
 └── sharpmake/              # Build system
 ```
 
@@ -353,6 +430,207 @@ Expr out = exp(-(cx * cx + cy * cy) / 0.25f);
 | `np.sqrt(a)` | `ops::nh_sqrt(a, shape)` |
 | `np.exp(a)` | `ops::nh_exp(a, shape)` |
 | `np.log(a)` | `ops::nh_log(a, shape)` |
+
+### Trigonometric Functions
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.sin(a)` | `nh_sin(a, shape)` |
+| `np.cos(a)` | `nh_cos(a, shape)` |
+| `np.tan(a)` | `nh_tan(a, shape)` |
+| `np.arcsin(a)` | `nh_asin(a, shape)` |
+| `np.arccos(a)` | `nh_acos(a, shape)` |
+| `np.arctan(a)` | `nh_atan(a, shape)` |
+| `np.arctan2(y, x)` | `nh_atan2(y, x, shape)` |
+| `np.hypot(x, y)` | `hypot(x, y, shape)` |
+| `np.sinh(a)` | `nh_sinh(a, shape)` |
+| `np.cosh(a)` | `nh_cosh(a, shape)` |
+| `np.tanh(a)` | `nh_tanh(a, shape)` |
+| `np.arcsinh(a)` | `nh_asinh(a, shape)` |
+| `np.arccosh(a)` | `nh_acosh(a, shape)` |
+| `np.arctanh(a)` | `nh_atanh(a, shape)` |
+| `np.degrees(a)` | `degrees(a, shape)` |
+| `np.radians(a)` | `radians(a, shape)` |
+
+### Extended Math
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.exp2(a)` | `nh_exp2(a, shape)` |
+| `np.log2(a)` | `nh_log2(a, shape)` |
+| `np.log10(a)` | `nh_log10(a, shape)` |
+| `np.expm1(a)` | `nh_expm1(a, shape)` |
+| `np.log1p(a)` | `nh_log1p(a, shape)` |
+| `np.square(a)` | `square(a, shape)` |
+| `np.cbrt(a)` | `cbrt(a, shape)` |
+| `np.reciprocal(a)` | `reciprocal(a, shape)` |
+| `np.sinc(a)` | `sinc(a, shape)` |
+| `np.heaviside(a, h0)` | `heaviside(a, h0, shape)` |
+| `np.fmod(a, b)` | `nh_fmod(a, b, shape)` |
+| `np.remainder(a, b)` | `remainder(a, b, shape)` |
+| `np.nan_to_num(a)` | `nan_to_num(a, shape)` |
+
+### Cumulative Operations
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.cumsum(a)` | `cumsum(a, shape)` |
+| `np.cumprod(a)` | `cumprod(a, shape)` |
+| `np.diff(a)` | `diff(a, shape)` |
+| `np.diff(a, n=2)` | `diff(a, shape, 0, 2)` |
+
+### Array Splitting
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.split(a, 4)` | `split(a, shape, axis, 4)` |
+| `np.split(a, [2, 5])` | `split_at(a, shape, axis, {2, 5})` |
+| `np.hsplit(a, 4)` | `hsplit(a, shape, 4)` |
+| `np.vsplit(a, 4)` | `vsplit(a, shape, 4)` |
+
+### Extended Comparisons
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.isclose(a, b)` | `isclose(a, b, shape)` |
+| `np.allclose(a, b)` | `allclose(a, b, shape)` |
+| `np.isneginf(a)` | `isneginf(a, shape)` |
+| `np.isposinf(a)` | `isposinf(a, shape)` |
+| `np.array_equal(a, b)` | `array_equal(a, b, shape)` |
+| `np.array_equiv(a, b)` | `array_equiv(a, b, shape)` |
+
+### Extended Statistics
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.median(a)` | `stats::median(a, shape)` |
+| `np.ptp(a)` | `stats::ptp(a, shape)` |
+| `np.average(a, weights=w)` | `stats::average(a, w, shape)` |
+| `np.histogram(a, bins)` | `stats::histogram(a, shape, bins, min, max)` |
+| `np.digitize(a, bins)` | `stats::digitize(a, bins, shape, n_bins)` |
+
+### Extended Random
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.random.exponential(lam, shape)` | `rand_exponential(type, shape, lambda, seed)` |
+| `np.random.binomial(1, p, shape)` | `rand_bernoulli(type, shape, p, seed)` |
+| `np.random.choice(n, shape)` | `rand_choice(type, shape, n, seed)` |
+
+### Bitwise Operations
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.bitwise_and(a, b)` | `bitwise_and(a, b, shape)` |
+| `np.bitwise_or(a, b)` | `bitwise_or(a, b, shape)` |
+| `np.bitwise_xor(a, b)` | `bitwise_xor(a, b, shape)` |
+| `np.bitwise_not(a)` | `bitwise_not(a, shape)` |
+| `np.left_shift(a, n)` | `left_shift(a, shape, n)` |
+| `np.right_shift(a, n)` | `right_shift(a, shape, n)` |
+| `popcount(a)` | `popcount(a, shape)` |
+
+### Window Functions
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.hanning(N)` | `hanning(N)` |
+| `np.hamming(N)` | `hamming(N)` |
+| `np.blackman(N)` | `blackman(N)` |
+| `np.bartlett(N)` | `bartlett(N)` |
+| `np.kaiser(N, beta)` | `kaiser(N, beta)` |
+
+### Real FFT
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.fft.rfft(a)` | `rfft(a, N)` |
+| `np.fft.irfft(a)` | `irfft(a, N)` |
+| `np.fft.rfft2(a)` | `rfft2d(a, rows, cols)` |
+| `np.fft.irfft2(a)` | `irfft2d(a, rows, cols)` |
+| `np.fft.fftfreq(N)` | `fftfreq(N)` |
+| `np.fft.rfftfreq(N)` | `rfftfreq(N)` |
+
+### Spectral Analysis
+
+| NumPy / SciPy | NumHalide |
+| --- | --- |
+| Cross power spectrum | `cross_power_spectrum(a, b, rows, cols)` |
+| Spectral centroid | `spectral_centroid(f, N)` |
+
+### Gradient and Differential Operators
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.gradient(a, axis=0)` | `gradient_1d(a, shape, axis)` |
+| `np.gradient(a)` (2D) | `gradient_2d(a, shape)` |
+| Discrete Laplacian | `laplacian(a, shape)` |
+| Divergence | `divergence(fx, fy, shape)` |
+
+### Morphological Operations
+
+| SciPy | NumHalide |
+| --- | --- |
+| `ndimage.maximum_filter(a, k)` | `dilate(a, shape, k)` |
+| `ndimage.minimum_filter(a, k)` | `erode(a, shape, k)` |
+| `ndimage.morphology.binary_opening` | `morph_open(a, shape, k)` |
+| `ndimage.morphology.binary_closing` | `morph_close(a, shape, k)` |
+| Morphological gradient | `morph_gradient(a, shape, k)` |
+| Top-hat transform | `top_hat(a, shape, k)` |
+
+### Color Space Conversions
+
+| Operation | NumHalide |
+| --- | --- |
+| RGB to Grayscale (BT.601) | `rgb_to_gray(f, shape)` |
+| Grayscale to RGB | `gray_to_rgb(f, shape)` |
+| RGB to HSV | `rgb_to_hsv(f, shape)` |
+| HSV to RGB | `hsv_to_rgb(f, shape)` |
+| RGB to YUV | `rgb_to_yuv(f, shape)` |
+| YUV to RGB | `yuv_to_rgb(f, shape)` |
+
+### Polynomial Evaluation
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.polyval(coeffs, x)` | `polyval(coeffs, n, x, shape)` |
+| `np.polynomial.chebyshev.chebval(x, [0]*n+[1])` | `chebyshev_t(n, x, shape)` |
+| `scipy.special.legendre(n)(x)` | `legendre_p(n, x, shape)` |
+
+### Distance Computations
+
+| SciPy | NumHalide |
+| --- | --- |
+| `scipy.spatial.distance.cdist(a, b, 'euclidean')` | `cdist_euclidean(a, b, n_a, n_b, dim)` |
+| `scipy.spatial.distance.cdist(a, b, 'cityblock')` | `cdist_manhattan(a, b, n_a, n_b, dim)` |
+| `scipy.spatial.distance.cosine(a, b)` | `cosine_similarity(a, b, shape)` |
+
+### Stencil Operations
+
+| Operation | NumHalide |
+| --- | --- |
+| Generic weighted stencil | `stencil_apply(f, shape, weights, offsets_x, offsets_y, n)` |
+| Jacobi iteration step | `jacobi_step(f, shape)` |
+| Heat diffusion step | `heat_diffusion_step(f, shape, dt, alpha)` |
+
+### Histogram and LUT
+
+| Operation | NumHalide |
+| --- | --- |
+| `np.histogram(a, bins)` | `histogram_1d(a, shape, bins, min, max)` |
+| Cumulative histogram | `cumulative_histogram(a, shape, bins, min, max)` |
+| Histogram equalization | `histogram_equalize(a, shape, bins)` |
+| Apply lookup table | `apply_lut(a, lut, shape)` |
+| Gamma correction | `gamma_correct(a, shape, gamma)` |
+
+### Thresholding
+
+| OpenCV | NumHalide |
+| --- | --- |
+| `cv2.threshold(a, t, 1, THRESH_BINARY)` | `threshold_binary(a, shape, thresh)` |
+| `cv2.threshold(a, t, 1, THRESH_TRUNC)` | `threshold_trunc(a, shape, thresh)` |
+| `cv2.threshold(a, t, 1, THRESH_TOZERO)` | `threshold_tozero(a, shape, thresh)` |
+| `cv2.threshold(a, 0, 1, THRESH_OTSU)` | `threshold_otsu(a, shape, bins)` |
+| Adaptive mean threshold | `threshold_adaptive(a, shape, block_size)` |
 
 ### Scheduling Helpers
 
