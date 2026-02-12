@@ -22,3 +22,5 @@
 #include "conv.h"
 #include "interp.h"
 #include "fft.h"
+#include "trig.h"
+#include "math_ext.h"

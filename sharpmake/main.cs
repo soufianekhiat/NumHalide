@@ -50,6 +50,8 @@ namespace NumHalide
 			conf.AddProject<Example17_LinalgExt>(target);
 			conf.AddProject<Example19_Convolution>(target);
 			conf.AddProject<Example20_Interpolation>(target);
+			conf.AddProject<Example21_Trigonometry>(target);
+			conf.AddProject<Example22_Math>(target);
 		}
 	}
 

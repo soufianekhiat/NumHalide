@@ -245,4 +245,24 @@ namespace NumHalide
 			SourceRootPath = RootPath + @"\examples\20_interpolation";
 		}
 	}
+
+	[Sharpmake.Generate]
+	public class Example21_Trigonometry : ExampleProjectBase
+	{
+		public Example21_Trigonometry()
+		{
+			Name = "Example_21_trigonometry";
+			SourceRootPath = RootPath + @"\examples\21_trigonometry";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example22_Math : ExampleProjectBase
+	{
+		public Example22_Math()
+		{
+			Name = "Example_22_math";
+			SourceRootPath = RootPath + @"\examples\22_math";
+		}
+	}
 }
