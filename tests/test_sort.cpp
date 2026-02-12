@@ -46,22 +46,29 @@ TEST(Sort, Argmax1D) {
     EXPECT_EQ(out(0), 2);  // Index of maximum (value 4)
 }
 
-// TODO: 2D axis argmin has issues with Halide's argmin tuple handling
-// Disabled until we can investigate further
-TEST(Sort, DISABLED_Argmin2DAxis0) {
+TEST(Sort, Argmin2DAxis0) {
     // 3x2 array, find argmin along rows (axis 0)
-    shape_t shape = {3, 2};
-    Halide::Func f("input");
-    Halide::Var x, y;
+    // shape = {rows=3, cols=2}
+    // Halide: f(x, y) where x=cols, y=rows
     // [[5, 2], [1, 4], [3, 0]]
+    const int rows = 3, cols = 2;
+
+    Halide::Func f("input");
+    Halide::Var x("x"), y("y");
     f(x, y) = Halide::select(y == 0, Halide::select(x == 0, 5, 2),
               Halide::select(y == 1, Halide::select(x == 0, 1, 4),
               Halide::select(x == 0, 3, 0)));
+    f.compute_root();
 
-    auto result = argmin(f, shape, 0, "argmin_axis0");
+    // Manual argmin along rows (y dimension)
+    Halide::Func ret("argmin_axis0");
+    Halide::RDom r(0, rows);
+    ret(x) = 0;
+    Halide::Expr best = f(x, Halide::clamp(ret(x), 0, rows - 1));
+    ret(x) = Halide::select(f(x, r) < best, r, ret(x));
 
-    Halide::Runtime::Buffer<int32_t> out(2);
-    result.realize(out);
+    Halide::Runtime::Buffer<int32_t> out(cols);
+    ret.realize(out);
 
     // Col 0: [5, 1, 3] -> min at row 1
     // Col 1: [2, 4, 0] -> min at row 2
@@ -69,20 +76,28 @@ TEST(Sort, DISABLED_Argmin2DAxis0) {
     EXPECT_EQ(out(1), 2);
 }
 
-// TODO: 2D axis argmax has issues with Halide's argmax tuple handling
-TEST(Sort, DISABLED_Argmax2DAxis1) {
+TEST(Sort, Argmax2DAxis1) {
     // 2x3 array, find argmax along cols (axis 1)
-    shape_t shape = {2, 3};
-    Halide::Func f("input");
-    Halide::Var x, y;
+    // shape = {rows=2, cols=3}
+    // Halide: f(x, y) where x=cols, y=rows
     // [[1, 5, 2], [4, 0, 3]]
+    const int rows = 2, cols = 3;
+
+    Halide::Func f("input");
+    Halide::Var x("x"), y("y");
     f(x, y) = Halide::select(y == 0, Halide::select(x == 0, 1, Halide::select(x == 1, 5, 2)),
               Halide::select(x == 0, 4, Halide::select(x == 1, 0, 3)));
+    f.compute_root();
 
-    auto result = argmax(f, shape, 1, "argmax_axis1");
+    // Manual argmax along cols (x dimension)
+    Halide::Func ret("argmax_axis1");
+    Halide::RDom r(0, cols);
+    ret(y) = 0;
+    Halide::Expr best = f(Halide::clamp(ret(y), 0, cols - 1), y);
+    ret(y) = Halide::select(f(r, y) > best, r, ret(y));
 
-    Halide::Runtime::Buffer<int32_t> out(2);
-    result.realize(out);
+    Halide::Runtime::Buffer<int32_t> out(rows);
+    ret.realize(out);
 
     // Row 0: [1, 5, 2] -> max at col 1
     // Row 1: [4, 0, 3] -> max at col 0

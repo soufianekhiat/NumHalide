@@ -16,11 +16,13 @@
 - **Comparisons**: `equal`, `not_equal`, `greater`, `less`, `greater_equal`, `less_equal`
 - **Logical Operations**: `logical_and`, `logical_or`, `nh_logical_not`, `logical_xor`
 - **Special Value Detection**: `isnan_func`, `isinf_func`, `isfinite_func`
-- **Sorting**: `argmin`, `argmax`, `bitonic_sort`, `bitonic_argsort`, `searchsorted`
+- **Sorting**: `argmin`, `argmax` (1D and 2D with axis), `bitonic_sort`, `bitonic_argsort`, `searchsorted`
+- **Set Operations**: `mark_unique`, `count_unique`, `unique`, `in1d`, `intersect1d`, `union1d`, `setdiff1d`
 - **Linear Algebra**: `matmul`, `dot`, `outer`, `matvec`, `trace`, `diag`, `norm`, `frobenius_norm`, `triu`, `tril`, `det2x2`, `det3x3`, `inv2x2`
 - **Convolution**: `convolve1d`, `convolve2d`, `convolve2d_separable`, `correlate2d`
 - **Convolution Kernels**: `box_kernel`, `gaussian_kernel_1d`, `sobel_x_kernel`, `sobel_y_kernel`, `laplacian_kernel`
 - **Interpolation**: `interp1d_uniform`, `resize_bilinear`, `resize_nearest`, `zoom`, `map_coordinates`
+- **FFT**: `fft`, `ifft`, `fft2d`, `ifft2d`, `fftshift`, `power_spectrum`
 - **Element-wise Ops**: `where`, `clip`, `astype`, math functions
 - **Scheduling Helpers**: `auto_tile`, `vectorize`, `parallel`, `full_optimize_2d`
 
@@ -74,8 +76,10 @@ NumHalide/
 │   ├── la.h                # Linear algebra (matmul, norm, triu/tril, det, inv)
 │   ├── ops.h               # Element-wise and comparison operations
 │   ├── sort.h              # Sorting (argmin, argmax, bitonic sort)
+│   ├── set_ops.h           # Set operations (unique, in1d, intersect, union, diff)
 │   ├── conv.h              # Convolution and correlation
 │   ├── interp.h            # Interpolation and resampling
+│   ├── fft.h               # FFT (1D/2D forward, inverse, power spectrum)
 │   └── schedule.h          # Scheduling helpers
 ├── examples/               # Usage examples
 │   ├── 00_gradient/        # Basic gradient image
@@ -95,9 +99,11 @@ NumHalide/
 │   ├── 14_comparisons/     # Comparison and logical operations
 │   ├── 16_sorting/         # Sorting and search
 │   ├── 17_linalg_ext/      # Extended linear algebra
+│   ├── 15_set_ops/         # Set operations
+│   ├── 18_fft/             # FFT transforms
 │   ├── 19_convolution/     # Filter gallery
 │   └── 20_interpolation/   # Image resizing and warping
-├── tests/                  # GoogleTest suite (182 tests)
+├── tests/                  # GoogleTest suite (205 tests)
 └── sharpmake/              # Build system
 ```
 
@@ -277,10 +283,39 @@ Expr out = exp(-(cx * cx + cy * cy) / 0.25f);
 | NumPy | NumHalide |
 | --- | --- |
 | `np.argmin(a)` | `argmin(a, shape)` |
+| `np.argmin(a, axis=0)` | `argmin(a, shape, 0)` |
 | `np.argmax(a)` | `argmax(a, shape)` |
+| `np.argmax(a, axis=1)` | `argmax(a, shape, 1)` |
 | `np.sort(a)` | `bitonic_sort(a, size)` (power of 2) |
 | `np.argsort(a)` | `bitonic_argsort(a, size)` (power of 2) |
 | `np.searchsorted(a, v)` | `searchsorted(a, v, size, n)` |
+
+### Set Operations
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.unique(a)` | `unique(a, size)` (sorted input) |
+| `np.in1d(a, b)` | `in1d(a, b_sorted, a_size, b_size)` |
+| `np.intersect1d(a, b)` | `intersect1d_sorted(a, b, size_a, size_b)` |
+| `np.setdiff1d(a, b)` | `setdiff1d_sorted(a, b, size_a, size_b)` |
+| `np.union1d(a, b)` | `union1d_sorted(a, b, size_a, size_b)` |
+
+**Helpers:**
+- `mark_unique(a, size)` - Mark first occurrence of each value in sorted array
+- `count_unique(a, size)` - Count distinct values in sorted array
+
+### FFT
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.fft.fft(a)` | `fft(a, N)` |
+| `np.fft.ifft(a)` | `ifft(a, N)` |
+| `np.fft.fft2(a)` | `fft2d(a, rows, cols)` |
+| `np.fft.ifft2(a)` | `ifft2d(a, rows, cols)` |
+| `np.fft.fftshift(a)` | `fftshift_1d(a, N)` / `fftshift_2d(a, rows, cols)` |
+| `np.abs(np.fft.fft(a))**2` | `power_spectrum(a, N)` / `power_spectrum_2d(a, rows, cols)` |
+
+**Complex number helpers:** `complex()`, `complex_add()`, `complex_mul()`, `complex_conj()`, `complex_mag()`, `expj()`
 
 ### Convolution
 

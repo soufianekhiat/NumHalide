@@ -60,19 +60,24 @@ Halide::Func argmin(Halide::Func f, const shape_t& in_shape, int axis, std::stri
     int rows = in_shape.extents[0];
     int cols = in_shape.extents[1];
 
+    // Compute input so it can be safely read multiple times
+    f.compute_root();
+
     Halide::Func ret(name);
     Halide::Var x("x");
 
     if (norm_axis == 0) {
-        // Reduce along rows (axis 0), output has shape (cols,)
+        // Reduce along rows (axis 0 = Halide dim 1 = y), output has shape (cols,)
         Halide::RDom r(0, rows);
-        Halide::Tuple result = Halide::argmin(r, f(x, r));
-        ret(x) = result[0];
+        ret(x) = 0;  // Initialize to row 0
+        Halide::Expr best = f(x, Halide::clamp(ret(x), 0, rows - 1));
+        ret(x) = Halide::select(f(x, r) < best, r, ret(x));
     } else {
-        // Reduce along cols (axis 1), output has shape (rows,)
+        // Reduce along cols (axis 1 = Halide dim 0 = x), output has shape (rows,)
         Halide::RDom r(0, cols);
-        Halide::Tuple result = Halide::argmin(r, f(r, x));
-        ret(x) = result[0];
+        ret(x) = 0;  // Initialize to col 0
+        Halide::Expr best = f(Halide::clamp(ret(x), 0, cols - 1), x);
+        ret(x) = Halide::select(f(r, x) < best, r, ret(x));
     }
 
     return ret;
@@ -118,19 +123,24 @@ Halide::Func argmax(Halide::Func f, const shape_t& in_shape, int axis, std::stri
     int rows = in_shape.extents[0];
     int cols = in_shape.extents[1];
 
+    // Compute input so it can be safely read multiple times
+    f.compute_root();
+
     Halide::Func ret(name);
     Halide::Var x("x");
 
     if (norm_axis == 0) {
-        // Reduce along rows (axis 0), output has shape (cols,)
+        // Reduce along rows (axis 0 = Halide dim 1 = y), output has shape (cols,)
         Halide::RDom r(0, rows);
-        Halide::Tuple result = Halide::argmax(r, f(x, r));
-        ret(x) = result[0];
+        ret(x) = 0;  // Initialize to row 0
+        Halide::Expr best = f(x, Halide::clamp(ret(x), 0, rows - 1));
+        ret(x) = Halide::select(f(x, r) > best, r, ret(x));
     } else {
-        // Reduce along cols (axis 1), output has shape (rows,)
+        // Reduce along cols (axis 1 = Halide dim 0 = x), output has shape (rows,)
         Halide::RDom r(0, cols);
-        Halide::Tuple result = Halide::argmax(r, f(r, x));
-        ret(x) = result[0];
+        ret(x) = 0;  // Initialize to col 0
+        Halide::Expr best = f(Halide::clamp(ret(x), 0, cols - 1), x);
+        ret(x) = Halide::select(f(r, x) > best, r, ret(x));
     }
 
     return ret;
