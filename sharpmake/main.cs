@@ -52,6 +52,24 @@ namespace NumHalide
 			conf.AddProject<Example20_Interpolation>(target);
 			conf.AddProject<Example21_Trigonometry>(target);
 			conf.AddProject<Example22_Math>(target);
+			conf.AddProject<Example23_Cumulative>(target);
+			conf.AddProject<Example24_Splitting>(target);
+			conf.AddProject<Example25_Closeness>(target);
+			conf.AddProject<Example26_StatisticsExt>(target);
+			conf.AddProject<Example27_RandomExt>(target);
+			conf.AddProject<Example28_ArrayCompare>(target);
+			conf.AddProject<Example29_Bitwise>(target);
+			conf.AddProject<Example30_Windows>(target);
+			conf.AddProject<Example31_RFFT>(target);
+			conf.AddProject<Example32_Gradient>(target);
+			conf.AddProject<Example33_Morphology>(target);
+			conf.AddProject<Example34_Color>(target);
+			conf.AddProject<Example35_Polynomial>(target);
+			conf.AddProject<Example36_Distance>(target);
+			conf.AddProject<Example37_Stencil>(target);
+			conf.AddProject<Example38_Histogram>(target);
+			conf.AddProject<Example39_Spectral>(target);
+			conf.AddProject<Example40_Threshold>(target);
 		}
 	}
 

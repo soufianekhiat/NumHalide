@@ -265,4 +265,184 @@ namespace NumHalide
 			SourceRootPath = RootPath + @"\examples\22_math";
 		}
 	}
+
+	[Sharpmake.Generate]
+	public class Example23_Cumulative : ExampleProjectBase
+	{
+		public Example23_Cumulative()
+		{
+			Name = "Example_23_cumulative";
+			SourceRootPath = RootPath + @"\examples\23_cumulative";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example24_Splitting : ExampleProjectBase
+	{
+		public Example24_Splitting()
+		{
+			Name = "Example_24_splitting";
+			SourceRootPath = RootPath + @"\examples\24_splitting";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example25_Closeness : ExampleProjectBase
+	{
+		public Example25_Closeness()
+		{
+			Name = "Example_25_closeness";
+			SourceRootPath = RootPath + @"\examples\25_closeness";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example26_StatisticsExt : ExampleProjectBase
+	{
+		public Example26_StatisticsExt()
+		{
+			Name = "Example_26_statistics_ext";
+			SourceRootPath = RootPath + @"\examples\26_statistics_ext";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example27_RandomExt : ExampleProjectBase
+	{
+		public Example27_RandomExt()
+		{
+			Name = "Example_27_random_ext";
+			SourceRootPath = RootPath + @"\examples\27_random_ext";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example28_ArrayCompare : ExampleProjectBase
+	{
+		public Example28_ArrayCompare()
+		{
+			Name = "Example_28_array_compare";
+			SourceRootPath = RootPath + @"\examples\28_array_compare";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example29_Bitwise : ExampleProjectBase
+	{
+		public Example29_Bitwise()
+		{
+			Name = "Example_29_bitwise";
+			SourceRootPath = RootPath + @"\examples\29_bitwise";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example30_Windows : ExampleProjectBase
+	{
+		public Example30_Windows()
+		{
+			Name = "Example_30_windows";
+			SourceRootPath = RootPath + @"\examples\30_windows";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example31_RFFT : ExampleProjectBase
+	{
+		public Example31_RFFT()
+		{
+			Name = "Example_31_rfft";
+			SourceRootPath = RootPath + @"\examples\31_rfft";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example32_Gradient : ExampleProjectBase
+	{
+		public Example32_Gradient()
+		{
+			Name = "Example_32_gradient";
+			SourceRootPath = RootPath + @"\examples\32_gradient";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example33_Morphology : ExampleProjectBase
+	{
+		public Example33_Morphology()
+		{
+			Name = "Example_33_morphology";
+			SourceRootPath = RootPath + @"\examples\33_morphology";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example34_Color : ExampleProjectBase
+	{
+		public Example34_Color()
+		{
+			Name = "Example_34_color";
+			SourceRootPath = RootPath + @"\examples\34_color";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example35_Polynomial : ExampleProjectBase
+	{
+		public Example35_Polynomial()
+		{
+			Name = "Example_35_polynomial";
+			SourceRootPath = RootPath + @"\examples\35_polynomial";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example36_Distance : ExampleProjectBase
+	{
+		public Example36_Distance()
+		{
+			Name = "Example_36_distance";
+			SourceRootPath = RootPath + @"\examples\36_distance";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example37_Stencil : ExampleProjectBase
+	{
+		public Example37_Stencil()
+		{
+			Name = "Example_37_stencil";
+			SourceRootPath = RootPath + @"\examples\37_stencil";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example38_Histogram : ExampleProjectBase
+	{
+		public Example38_Histogram()
+		{
+			Name = "Example_38_histogram";
+			SourceRootPath = RootPath + @"\examples\38_histogram";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example39_Spectral : ExampleProjectBase
+	{
+		public Example39_Spectral()
+		{
+			Name = "Example_39_spectral";
+			SourceRootPath = RootPath + @"\examples\39_spectral";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example40_Threshold : ExampleProjectBase
+	{
+		public Example40_Threshold()
+		{
+			Name = "Example_40_threshold";
+			SourceRootPath = RootPath + @"\examples\40_threshold";
+		}
+	}
 }
