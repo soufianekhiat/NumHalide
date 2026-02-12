@@ -534,4 +534,308 @@ inline Halide::Func reduce_mean(Halide::Func f, const shape_t& in_shape, std::st
     return ret;
 }
 
+// -----------------------------------------------------------------------------
+// Boolean Reductions
+// -----------------------------------------------------------------------------
+
+/// @brief Check if any element is non-zero along specified axes
+/// @param f Input Func
+/// @param in_shape Input shape
+/// @param axes Axes to reduce over
+/// @param keepdims If true, reduced axes have size 1
+/// @param name Function name
+/// @return Func with 1 (true) if any element is non-zero, 0 (false) otherwise
+inline Halide::Func reduce_any(
+    Halide::Func f,
+    const shape_t& in_shape,
+    const std::vector<int>& axes,
+    bool keepdims = false,
+    std::string const& name = "reduce_any")
+{
+    std::vector<int> norm_axes;
+    for (int ax : axes) {
+        norm_axes.push_back(normalized_axis(ax, in_shape.rank));
+    }
+    std::sort(norm_axes.begin(), norm_axes.end());
+
+    if (norm_axes.empty()) {
+        for (int i = 0; i < in_shape.rank; ++i) {
+            norm_axes.push_back(i);
+        }
+    }
+
+    std::vector<Halide::Range> rdom_ranges;
+    for (int ax : norm_axes) {
+        rdom_ranges.push_back({0, in_shape.extents[ax]});
+    }
+    Halide::RDom rdom(rdom_ranges);
+
+    shape_t out_shape = infer_reduce(in_shape, norm_axes, keepdims);
+
+    std::vector<Halide::Var> out_vars;
+    for (int i = 0; i < out_shape.rank; ++i) {
+        out_vars.push_back(Halide::Var());
+    }
+
+    std::vector<Halide::Expr> in_args;
+    int out_idx = 0;
+    int rdom_idx = 0;
+
+    for (int i = in_shape.rank - 1; i >= 0; --i) {
+        bool is_reduced = std::find(norm_axes.begin(), norm_axes.end(), i) != norm_axes.end();
+        if (is_reduced) {
+            in_args.push_back(rdom[rdom_idx]);
+            rdom_idx++;
+            if (keepdims) out_idx++;
+        } else {
+            in_args.push_back(out_vars[out_idx]);
+            out_idx++;
+        }
+    }
+
+    // any = max(x != 0) - if any element is non-zero, max will be 1
+    Halide::Func ret(name);
+    ret(out_vars) = Halide::cast<int32_t>(0);
+    ret(out_vars) = Halide::max(ret(out_vars), Halide::cast<int32_t>(f(in_args) != 0));
+
+    return ret;
+}
+
+/// @brief Check if any element is non-zero (full reduction)
+/// @param f Input Func
+/// @param in_shape Input shape
+/// @param name Function name
+/// @return 1D Func with single element (1 if any true, 0 otherwise)
+inline Halide::Func reduce_any(Halide::Func f, const shape_t& in_shape, std::string const& name = "reduce_any") {
+    std::vector<int> all_axes;
+    for (int i = 0; i < in_shape.rank; ++i) all_axes.push_back(i);
+
+    Halide::Func reduced = reduce_any(f, in_shape, all_axes, true, name + "_inner");
+
+    Halide::Func ret(name);
+    Halide::Var x;
+    std::vector<Halide::Expr> zeros(in_shape.rank, 0);
+    ret(x) = reduced(zeros);
+
+    return ret;
+}
+
+/// @brief Check if any element is non-zero along a single axis
+/// @param f Input Func
+/// @param in_shape Input shape
+/// @param axis Axis to reduce
+/// @param keepdims If true, keep the reduced dimension
+/// @param name Function name
+/// @return Func with boolean results
+inline Halide::Func reduce_any(
+    Halide::Func f,
+    const shape_t& in_shape,
+    int axis,
+    bool keepdims = false,
+    std::string const& name = "reduce_any")
+{
+    std::vector<int> axes = {axis};
+    return reduce_any(f, in_shape, axes, keepdims, name);
+}
+
+/// @brief Check if all elements are non-zero along specified axes
+/// @param f Input Func
+/// @param in_shape Input shape
+/// @param axes Axes to reduce over
+/// @param keepdims If true, reduced axes have size 1
+/// @param name Function name
+/// @return Func with 1 (true) if all elements are non-zero, 0 (false) otherwise
+inline Halide::Func reduce_all(
+    Halide::Func f,
+    const shape_t& in_shape,
+    const std::vector<int>& axes,
+    bool keepdims = false,
+    std::string const& name = "reduce_all")
+{
+    std::vector<int> norm_axes;
+    for (int ax : axes) {
+        norm_axes.push_back(normalized_axis(ax, in_shape.rank));
+    }
+    std::sort(norm_axes.begin(), norm_axes.end());
+
+    if (norm_axes.empty()) {
+        for (int i = 0; i < in_shape.rank; ++i) {
+            norm_axes.push_back(i);
+        }
+    }
+
+    std::vector<Halide::Range> rdom_ranges;
+    for (int ax : norm_axes) {
+        rdom_ranges.push_back({0, in_shape.extents[ax]});
+    }
+    Halide::RDom rdom(rdom_ranges);
+
+    shape_t out_shape = infer_reduce(in_shape, norm_axes, keepdims);
+
+    std::vector<Halide::Var> out_vars;
+    for (int i = 0; i < out_shape.rank; ++i) {
+        out_vars.push_back(Halide::Var());
+    }
+
+    std::vector<Halide::Expr> in_args;
+    int out_idx = 0;
+    int rdom_idx = 0;
+
+    for (int i = in_shape.rank - 1; i >= 0; --i) {
+        bool is_reduced = std::find(norm_axes.begin(), norm_axes.end(), i) != norm_axes.end();
+        if (is_reduced) {
+            in_args.push_back(rdom[rdom_idx]);
+            rdom_idx++;
+            if (keepdims) out_idx++;
+        } else {
+            in_args.push_back(out_vars[out_idx]);
+            out_idx++;
+        }
+    }
+
+    // all = min(x != 0) - if any element is zero, min will be 0
+    Halide::Func ret(name);
+    ret(out_vars) = Halide::cast<int32_t>(1);
+    ret(out_vars) = Halide::min(ret(out_vars), Halide::cast<int32_t>(f(in_args) != 0));
+
+    return ret;
+}
+
+/// @brief Check if all elements are non-zero (full reduction)
+/// @param f Input Func
+/// @param in_shape Input shape
+/// @param name Function name
+/// @return 1D Func with single element (1 if all true, 0 otherwise)
+inline Halide::Func reduce_all(Halide::Func f, const shape_t& in_shape, std::string const& name = "reduce_all") {
+    std::vector<int> all_axes;
+    for (int i = 0; i < in_shape.rank; ++i) all_axes.push_back(i);
+
+    Halide::Func reduced = reduce_all(f, in_shape, all_axes, true, name + "_inner");
+
+    Halide::Func ret(name);
+    Halide::Var x;
+    std::vector<Halide::Expr> zeros(in_shape.rank, 0);
+    ret(x) = reduced(zeros);
+
+    return ret;
+}
+
+/// @brief Check if all elements are non-zero along a single axis
+/// @param f Input Func
+/// @param in_shape Input shape
+/// @param axis Axis to reduce
+/// @param keepdims If true, keep the reduced dimension
+/// @param name Function name
+/// @return Func with boolean results
+inline Halide::Func reduce_all(
+    Halide::Func f,
+    const shape_t& in_shape,
+    int axis,
+    bool keepdims = false,
+    std::string const& name = "reduce_all")
+{
+    std::vector<int> axes = {axis};
+    return reduce_all(f, in_shape, axes, keepdims, name);
+}
+
+/// @brief Count non-zero elements along specified axes
+/// @param f Input Func
+/// @param in_shape Input shape
+/// @param axes Axes to reduce over
+/// @param keepdims If true, reduced axes have size 1
+/// @param name Function name
+/// @return Func with count of non-zero elements
+inline Halide::Func count_nonzero(
+    Halide::Func f,
+    const shape_t& in_shape,
+    const std::vector<int>& axes,
+    bool keepdims = false,
+    std::string const& name = "count_nonzero")
+{
+    std::vector<int> norm_axes;
+    for (int ax : axes) {
+        norm_axes.push_back(normalized_axis(ax, in_shape.rank));
+    }
+    std::sort(norm_axes.begin(), norm_axes.end());
+
+    if (norm_axes.empty()) {
+        for (int i = 0; i < in_shape.rank; ++i) {
+            norm_axes.push_back(i);
+        }
+    }
+
+    std::vector<Halide::Range> rdom_ranges;
+    for (int ax : norm_axes) {
+        rdom_ranges.push_back({0, in_shape.extents[ax]});
+    }
+    Halide::RDom rdom(rdom_ranges);
+
+    shape_t out_shape = infer_reduce(in_shape, norm_axes, keepdims);
+
+    std::vector<Halide::Var> out_vars;
+    for (int i = 0; i < out_shape.rank; ++i) {
+        out_vars.push_back(Halide::Var());
+    }
+
+    std::vector<Halide::Expr> in_args;
+    int out_idx = 0;
+    int rdom_idx = 0;
+
+    for (int i = in_shape.rank - 1; i >= 0; --i) {
+        bool is_reduced = std::find(norm_axes.begin(), norm_axes.end(), i) != norm_axes.end();
+        if (is_reduced) {
+            in_args.push_back(rdom[rdom_idx]);
+            rdom_idx++;
+            if (keepdims) out_idx++;
+        } else {
+            in_args.push_back(out_vars[out_idx]);
+            out_idx++;
+        }
+    }
+
+    // Count by summing (x != 0)
+    Halide::Func ret(name);
+    ret(out_vars) = Halide::cast<int32_t>(0);
+    ret(out_vars) += Halide::cast<int32_t>(f(in_args) != 0);
+
+    return ret;
+}
+
+/// @brief Count non-zero elements (full reduction)
+/// @param f Input Func
+/// @param in_shape Input shape
+/// @param name Function name
+/// @return 1D Func with count
+inline Halide::Func count_nonzero(Halide::Func f, const shape_t& in_shape, std::string const& name = "count_nonzero") {
+    std::vector<int> all_axes;
+    for (int i = 0; i < in_shape.rank; ++i) all_axes.push_back(i);
+
+    Halide::Func reduced = count_nonzero(f, in_shape, all_axes, true, name + "_inner");
+
+    Halide::Func ret(name);
+    Halide::Var x;
+    std::vector<Halide::Expr> zeros(in_shape.rank, 0);
+    ret(x) = reduced(zeros);
+
+    return ret;
+}
+
+/// @brief Count non-zero elements along a single axis
+/// @param f Input Func
+/// @param in_shape Input shape
+/// @param axis Axis to reduce
+/// @param keepdims If true, keep the reduced dimension
+/// @param name Function name
+/// @return Func with counts
+inline Halide::Func count_nonzero(
+    Halide::Func f,
+    const shape_t& in_shape,
+    int axis,
+    bool keepdims = false,
+    std::string const& name = "count_nonzero")
+{
+    std::vector<int> axes = {axis};
+    return count_nonzero(f, in_shape, axes, keepdims, name);
+}
+
 NS_NUM_HALIDE_END

@@ -402,4 +402,267 @@ Halide::Func nh_pow(Halide::Func base, Halide::Func exp, const shape_t& shape, s
 	return ret;
 }
 
+// -----------------------------------------------------------------------------
+// Comparison Operations
+// -----------------------------------------------------------------------------
+
+/// @brief Element-wise equality comparison
+/// @return Func returning 1 where equal, 0 otherwise
+inline
+Halide::Func equal(Halide::Func a, Halide::Func b, const shape_t& shape, std::string const& name = "equal")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(a(vars) == b(vars));
+	return ret;
+}
+
+/// @brief Element-wise equality comparison with scalar
+inline
+Halide::Func equal(Halide::Func a, Halide::Expr scalar, const shape_t& shape, std::string const& name = "equal")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(a(vars) == scalar);
+	return ret;
+}
+
+/// @brief Element-wise inequality comparison
+inline
+Halide::Func not_equal(Halide::Func a, Halide::Func b, const shape_t& shape, std::string const& name = "not_equal")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(a(vars) != b(vars));
+	return ret;
+}
+
+/// @brief Element-wise inequality comparison with scalar
+inline
+Halide::Func not_equal(Halide::Func a, Halide::Expr scalar, const shape_t& shape, std::string const& name = "not_equal")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(a(vars) != scalar);
+	return ret;
+}
+
+/// @brief Element-wise greater than comparison
+inline
+Halide::Func greater(Halide::Func a, Halide::Func b, const shape_t& shape, std::string const& name = "greater")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(a(vars) > b(vars));
+	return ret;
+}
+
+/// @brief Element-wise greater than comparison with scalar
+inline
+Halide::Func greater(Halide::Func a, Halide::Expr scalar, const shape_t& shape, std::string const& name = "greater")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(a(vars) > scalar);
+	return ret;
+}
+
+/// @brief Element-wise less than comparison
+inline
+Halide::Func less(Halide::Func a, Halide::Func b, const shape_t& shape, std::string const& name = "less")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(a(vars) < b(vars));
+	return ret;
+}
+
+/// @brief Element-wise less than comparison with scalar
+inline
+Halide::Func less(Halide::Func a, Halide::Expr scalar, const shape_t& shape, std::string const& name = "less")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(a(vars) < scalar);
+	return ret;
+}
+
+/// @brief Element-wise greater than or equal comparison
+inline
+Halide::Func greater_equal(Halide::Func a, Halide::Func b, const shape_t& shape, std::string const& name = "greater_equal")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(a(vars) >= b(vars));
+	return ret;
+}
+
+/// @brief Element-wise greater than or equal comparison with scalar
+inline
+Halide::Func greater_equal(Halide::Func a, Halide::Expr scalar, const shape_t& shape, std::string const& name = "greater_equal")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(a(vars) >= scalar);
+	return ret;
+}
+
+/// @brief Element-wise less than or equal comparison
+inline
+Halide::Func less_equal(Halide::Func a, Halide::Func b, const shape_t& shape, std::string const& name = "less_equal")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(a(vars) <= b(vars));
+	return ret;
+}
+
+/// @brief Element-wise less than or equal comparison with scalar
+inline
+Halide::Func less_equal(Halide::Func a, Halide::Expr scalar, const shape_t& shape, std::string const& name = "less_equal")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(a(vars) <= scalar);
+	return ret;
+}
+
+// -----------------------------------------------------------------------------
+// Logical Operations
+// -----------------------------------------------------------------------------
+
+/// @brief Element-wise logical AND
+inline
+Halide::Func logical_and(Halide::Func a, Halide::Func b, const shape_t& shape, std::string const& name = "logical_and")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>((a(vars) != 0) && (b(vars) != 0));
+	return ret;
+}
+
+/// @brief Element-wise logical OR
+inline
+Halide::Func logical_or(Halide::Func a, Halide::Func b, const shape_t& shape, std::string const& name = "logical_or")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>((a(vars) != 0) || (b(vars) != 0));
+	return ret;
+}
+
+/// @brief Element-wise logical NOT
+inline
+Halide::Func nh_logical_not(Halide::Func a, const shape_t& shape, std::string const& name = "nh_logical_not")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(a(vars) == 0);
+	return ret;
+}
+
+/// @brief Element-wise logical XOR
+inline
+Halide::Func logical_xor(Halide::Func a, Halide::Func b, const shape_t& shape, std::string const& name = "logical_xor")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	// XOR: exactly one is true
+	Halide::Expr a_bool = a(vars) != 0;
+	Halide::Expr b_bool = b(vars) != 0;
+	ret(vars) = Halide::cast<int32_t>((a_bool && !b_bool) || (!a_bool && b_bool));
+	return ret;
+}
+
+// -----------------------------------------------------------------------------
+// Special Value Detection
+// -----------------------------------------------------------------------------
+
+/// @brief Check for NaN values (float/double only)
+inline
+Halide::Func isnan_func(Halide::Func a, const shape_t& shape, std::string const& name = "isnan")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(Halide::is_nan(a(vars)));
+	return ret;
+}
+
+/// @brief Check for infinity values (float/double only)
+inline
+Halide::Func isinf_func(Halide::Func a, const shape_t& shape, std::string const& name = "isinf")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(Halide::is_inf(a(vars)));
+	return ret;
+}
+
+/// @brief Check for finite values (not NaN and not infinity)
+inline
+Halide::Func isfinite_func(Halide::Func a, const shape_t& shape, std::string const& name = "isfinite")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+	ret(vars) = Halide::cast<int32_t>(Halide::is_finite(a(vars)));
+	return ret;
+}
+
 NS_NUM_HALIDE_END

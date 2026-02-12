@@ -409,4 +409,220 @@ inline shape_t infer_diag_matrix(const shape_t& vec) {
 	return shape_t{ vec.extents[0], vec.extents[0] };
 }
 
+// -----------------------------------------------------------------------------
+// Norms
+// -----------------------------------------------------------------------------
+
+/// @brief Compute L2 (Euclidean) norm of a vector
+/// @param vec Vector
+/// @param shape_vec Shape of vector (1D)
+/// @param name Function name
+/// @return Scalar norm as 1D Func
+inline
+Halide::Func norm(Halide::Func vec, const shape_t& shape_vec, std::string const& name = "norm")
+{
+	nh_require(nullptr, shape_vec.rank == 1,
+		"vector norm requires 1D input, got rank %d", shape_vec.rank);
+
+	int N = shape_vec.extents[0];
+
+	Halide::Func ret(name);
+	Halide::Var x("x");
+	Halide::RDom i(0, N, "i");
+
+	Halide::Func sum_sq("sum_sq");
+	sum_sq(x) = Halide::cast<float>(0);
+	sum_sq(x) += Halide::cast<float>(vec(i)) * Halide::cast<float>(vec(i));
+
+	ret(x) = Halide::sqrt(sum_sq(x));
+
+	return ret;
+}
+
+/// @brief Compute Frobenius norm of a matrix
+/// @param mat Matrix
+/// @param shape_mat Shape of matrix (2D)
+/// @param name Function name
+/// @return Scalar norm as 1D Func
+inline
+Halide::Func frobenius_norm(Halide::Func mat, const shape_t& shape_mat, std::string const& name = "frobenius_norm")
+{
+	nh_require(nullptr, shape_mat.rank == 2,
+		"frobenius_norm requires 2D matrix, got rank %d", shape_mat.rank);
+
+	int M = shape_mat.extents[0];
+	int N = shape_mat.extents[1];
+
+	Halide::Func ret(name);
+	Halide::Var x("x");
+	Halide::RDom r(0, N, 0, M, "r");
+
+	Halide::Func sum_sq("sum_sq");
+	sum_sq(x) = Halide::cast<float>(0);
+	sum_sq(x) += Halide::cast<float>(mat(r.x, r.y)) * Halide::cast<float>(mat(r.x, r.y));
+
+	ret(x) = Halide::sqrt(sum_sq(x));
+
+	return ret;
+}
+
+/// @brief Compute norm along an axis
+/// @param f Input Func
+/// @param in_shape Shape of input
+/// @param axis Axis to compute norm along
+/// @param name Function name
+/// @return Func with norms
+inline
+Halide::Func norm(Halide::Func f, const shape_t& in_shape, int axis, std::string const& name = "norm_axis")
+{
+	int norm_axis = normalized_axis(axis, in_shape.rank);
+	int extent = in_shape.extents[norm_axis];
+
+	Halide::RDom r(0, extent);
+
+	Halide::Func ret(name);
+	std::vector<Halide::Var> out_vars;
+	int out_rank = in_shape.rank - 1;
+	for (int i = 0; i < out_rank; ++i) {
+		out_vars.push_back(Halide::Var());
+	}
+
+	// Build input arguments
+	std::vector<Halide::Expr> in_args;
+	int out_var_idx = 0;
+	for (int shape_dim = in_shape.rank - 1; shape_dim >= 0; --shape_dim) {
+		if (shape_dim == norm_axis) {
+			in_args.push_back(r);
+		} else {
+			in_args.push_back(out_vars[out_rank - 1 - out_var_idx]);
+			out_var_idx++;
+		}
+	}
+
+	Halide::Func sum_sq("sum_sq");
+	sum_sq(out_vars) = Halide::cast<float>(0);
+	sum_sq(out_vars) += Halide::cast<float>(f(in_args)) * Halide::cast<float>(f(in_args));
+
+	ret(out_vars) = Halide::sqrt(sum_sq(out_vars));
+
+	return ret;
+}
+
+// -----------------------------------------------------------------------------
+// Triangular Matrices
+// -----------------------------------------------------------------------------
+
+/// @brief Extract upper triangular part of a matrix
+/// @param mat Matrix (M x N)
+/// @param shape_mat Shape of matrix
+/// @param k Diagonal offset (0 = main diagonal, positive = above)
+/// @param name Function name
+/// @return Upper triangular matrix
+inline
+Halide::Func triu(Halide::Func mat, const shape_t& shape_mat, int k = 0, std::string const& name = "triu")
+{
+	nh_require(nullptr, shape_mat.rank == 2,
+		"triu requires 2D matrix, got rank %d", shape_mat.rank);
+
+	Halide::Func ret(name);
+	Halide::Var x("x"), y("y");
+
+	// For upper triangular: col >= row + k
+	// In Halide: x >= y + k
+	ret(x, y) = Halide::select(x >= y + k, mat(x, y), Halide::cast(mat.types()[0], 0));
+
+	return ret;
+}
+
+/// @brief Extract lower triangular part of a matrix
+/// @param mat Matrix (M x N)
+/// @param shape_mat Shape of matrix
+/// @param k Diagonal offset (0 = main diagonal, negative = below)
+/// @param name Function name
+/// @return Lower triangular matrix
+inline
+Halide::Func tril(Halide::Func mat, const shape_t& shape_mat, int k = 0, std::string const& name = "tril")
+{
+	nh_require(nullptr, shape_mat.rank == 2,
+		"tril requires 2D matrix, got rank %d", shape_mat.rank);
+
+	Halide::Func ret(name);
+	Halide::Var x("x"), y("y");
+
+	// For lower triangular: col <= row + k
+	// In Halide: x <= y + k
+	ret(x, y) = Halide::select(x <= y + k, mat(x, y), Halide::cast(mat.types()[0], 0));
+
+	return ret;
+}
+
+// -----------------------------------------------------------------------------
+// Simple Matrix Operations
+// -----------------------------------------------------------------------------
+
+/// @brief Compute determinant of a 2x2 matrix
+/// @param mat 2x2 matrix
+/// @param name Function name
+/// @return Scalar determinant as 1D Func
+inline
+Halide::Func det2x2(Halide::Func mat, std::string const& name = "det")
+{
+	Halide::Func ret(name);
+	Halide::Var x("x");
+
+	// det = a*d - b*c where [[a,b],[c,d]]
+	// mat(col, row): a=mat(0,0), b=mat(1,0), c=mat(0,1), d=mat(1,1)
+	ret(x) = mat(0, 0) * mat(1, 1) - mat(1, 0) * mat(0, 1);
+
+	return ret;
+}
+
+/// @brief Compute inverse of a 2x2 matrix
+/// @param mat 2x2 matrix
+/// @param name Function name
+/// @return Inverted 2x2 matrix
+inline
+Halide::Func inv2x2(Halide::Func mat, std::string const& name = "inv")
+{
+	Halide::Func ret(name);
+	Halide::Var x("x"), y("y");
+
+	// For [[a,b],[c,d]], inv = 1/det * [[d,-b],[-c,a]]
+	Halide::Expr det = mat(0, 0) * mat(1, 1) - mat(1, 0) * mat(0, 1);
+	Halide::Expr inv_det = Halide::cast<float>(1) / det;
+
+	ret(x, y) = Halide::select(
+		x == 0 && y == 0, inv_det * mat(1, 1),
+		Halide::select(
+			x == 1 && y == 0, -inv_det * mat(1, 0),
+			Halide::select(
+				x == 0 && y == 1, -inv_det * mat(0, 1),
+				inv_det * mat(0, 0)
+			)
+		)
+	);
+
+	return ret;
+}
+
+/// @brief Compute determinant of a 3x3 matrix
+/// @param mat 3x3 matrix
+/// @param name Function name
+/// @return Scalar determinant as 1D Func
+inline
+Halide::Func det3x3(Halide::Func mat, std::string const& name = "det3x3")
+{
+	Halide::Func ret(name);
+	Halide::Var x("x");
+
+	// Using cofactor expansion along first row
+	Halide::Expr a = mat(0, 0), b = mat(1, 0), c = mat(2, 0);
+	Halide::Expr d = mat(0, 1), e = mat(1, 1), f = mat(2, 1);
+	Halide::Expr g = mat(0, 2), h = mat(1, 2), i = mat(2, 2);
+
+	ret(x) = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+
+	return ret;
+}
+
 NS_NUM_HALIDE_END

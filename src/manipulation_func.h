@@ -542,4 +542,340 @@ inline shape_t infer_squeeze(const shape_t& in, int axis = -1) {
 	return res;
 }
 
+// -----------------------------------------------------------------------------
+// Flip Operations
+// -----------------------------------------------------------------------------
+
+/// @brief Flip (reverse) array along specified axis
+/// @param f Input Func
+/// @param in_shape Shape of input
+/// @param axis Axis to flip along
+/// @param name Function name
+/// @return Flipped Func
+inline
+Halide::Func flip(Halide::Func f, const shape_t& in_shape, int axis, std::string const& name = "flip")
+{
+	int norm_axis = normalized_axis(axis, in_shape.rank);
+	int extent = in_shape.extents[norm_axis];
+
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < in_shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	// Build input arguments, reversing the specified axis
+	std::vector<Halide::Expr> in_args;
+	for (int shape_dim = in_shape.rank - 1; shape_dim >= 0; --shape_dim) {
+		int var_idx = in_shape.rank - 1 - shape_dim;
+		if (shape_dim == norm_axis) {
+			// Reverse: index becomes (extent - 1 - index)
+			in_args.push_back(extent - 1 - vars[var_idx]);
+		} else {
+			in_args.push_back(vars[var_idx]);
+		}
+	}
+
+	ret(vars) = f(in_args);
+	return ret;
+}
+
+/// @brief Flip array up-down (along axis 0)
+inline
+Halide::Func flipud(Halide::Func f, const shape_t& in_shape, std::string const& name = "flipud")
+{
+	return flip(f, in_shape, 0, name);
+}
+
+/// @brief Flip array left-right (along axis 1 for 2D+)
+inline
+Halide::Func fliplr(Halide::Func f, const shape_t& in_shape, std::string const& name = "fliplr")
+{
+	nh_require(nullptr, in_shape.rank >= 2, "fliplr requires rank >= 2, got %d", in_shape.rank);
+	return flip(f, in_shape, 1, name);
+}
+
+/// @brief Rotate array 90 degrees counter-clockwise k times
+/// @param f Input Func (2D)
+/// @param in_shape Shape of input (must be rank 2)
+/// @param k Number of 90-degree rotations (default 1)
+/// @param name Function name
+/// @return Rotated Func
+inline
+Halide::Func rot90(Halide::Func f, const shape_t& in_shape, int k = 1, std::string const& name = "rot90")
+{
+	nh_require(nullptr, in_shape.rank == 2, "rot90 requires rank 2, got %d", in_shape.rank);
+
+	// Normalize k to 0, 1, 2, or 3
+	k = ((k % 4) + 4) % 4;
+
+	if (k == 0) {
+		// No rotation - return copy
+		Halide::Func ret(name);
+		Halide::Var x, y;
+		ret(x, y) = f(x, y);
+		return ret;
+	}
+
+	int rows = in_shape.extents[0];
+	int cols = in_shape.extents[1];
+
+	Halide::Func ret(name);
+	Halide::Var x, y;
+
+	if (k == 1) {
+		// 90 degrees CCW
+		// Output shape: (cols, rows)
+		// new(x, y) = old(cols - 1 - y, x)
+		ret(x, y) = f(cols - 1 - y, x);
+	} else if (k == 2) {
+		// 180 degrees
+		// Output shape: same
+		ret(x, y) = f(cols - 1 - x, rows - 1 - y);
+	} else { // k == 3
+		// 270 degrees CCW (90 CW)
+		// Output shape: (cols, rows)
+		// new(x, y) = old(y, rows - 1 - x)
+		ret(x, y) = f(y, rows - 1 - x);
+	}
+
+	return ret;
+}
+
+/// @brief Infer output shape for rot90
+inline shape_t infer_rot90(const shape_t& in, int k = 1) {
+	k = ((k % 4) + 4) % 4;
+	if (k == 0 || k == 2) {
+		return in; // Same shape
+	}
+	// k == 1 or k == 3: rows and cols swap
+	shape_t res = in;
+	res.extents[0] = in.extents[1];
+	res.extents[1] = in.extents[0];
+	return res;
+}
+
+/// @brief Roll array elements along an axis
+/// @param f Input Func
+/// @param in_shape Shape of input
+/// @param shift Number of positions to shift (positive = towards end)
+/// @param axis Axis to roll along
+/// @param name Function name
+/// @return Rolled Func
+inline
+Halide::Func roll(Halide::Func f, const shape_t& in_shape, int shift, int axis, std::string const& name = "roll")
+{
+	int norm_axis = normalized_axis(axis, in_shape.rank);
+	int extent = in_shape.extents[norm_axis];
+
+	// Normalize shift to positive modulo
+	shift = ((shift % extent) + extent) % extent;
+
+	if (shift == 0) {
+		Halide::Func ret(name);
+		std::vector<Halide::Var> vars;
+		for (int i = 0; i < in_shape.rank; ++i) {
+			vars.push_back(Halide::Var());
+		}
+		ret(vars) = f(vars);
+		return ret;
+	}
+
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < in_shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	// Build input arguments
+	std::vector<Halide::Expr> in_args;
+	for (int shape_dim = in_shape.rank - 1; shape_dim >= 0; --shape_dim) {
+		int var_idx = in_shape.rank - 1 - shape_dim;
+		if (shape_dim == norm_axis) {
+			// Roll: new_index -> old_index = (new_index - shift + extent) % extent
+			in_args.push_back((vars[var_idx] - shift + extent) % extent);
+		} else {
+			in_args.push_back(vars[var_idx]);
+		}
+	}
+
+	ret(vars) = f(in_args);
+	return ret;
+}
+
+/// @brief Tile (repeat) array along each axis
+/// @param f Input Func
+/// @param in_shape Shape of input
+/// @param reps Number of repetitions for each axis
+/// @param name Function name
+/// @return Tiled Func
+inline
+Halide::Func tile(Halide::Func f, const shape_t& in_shape, const std::vector<int>& reps, std::string const& name = "tile")
+{
+	nh_require(nullptr, static_cast<int>(reps.size()) == in_shape.rank,
+		"Tile reps length %d does not match rank %d",
+		static_cast<int>(reps.size()), in_shape.rank);
+
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < in_shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	// Build input arguments using modulo
+	std::vector<Halide::Expr> in_args;
+	for (int shape_dim = in_shape.rank - 1; shape_dim >= 0; --shape_dim) {
+		int var_idx = in_shape.rank - 1 - shape_dim;
+		int extent = in_shape.extents[shape_dim];
+		in_args.push_back(vars[var_idx] % extent);
+	}
+
+	ret(vars) = f(in_args);
+	return ret;
+}
+
+/// @brief Infer output shape for tile
+inline shape_t infer_tile(const shape_t& in, const std::vector<int>& reps) {
+	shape_t res = in;
+	for (int i = 0; i < in.rank && i < static_cast<int>(reps.size()); ++i) {
+		res.extents[i] = in.extents[i] * reps[i];
+	}
+	return res;
+}
+
+/// @brief Repeat elements of array along an axis
+/// @param f Input Func
+/// @param in_shape Shape of input
+/// @param repeats Number of repetitions for each element
+/// @param axis Axis along which to repeat
+/// @param name Function name
+/// @return Func with repeated elements
+inline
+Halide::Func repeat(Halide::Func f, const shape_t& in_shape, int repeats, int axis, std::string const& name = "repeat")
+{
+	int norm_axis = normalized_axis(axis, in_shape.rank);
+
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < in_shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	// Build input arguments
+	std::vector<Halide::Expr> in_args;
+	for (int shape_dim = in_shape.rank - 1; shape_dim >= 0; --shape_dim) {
+		int var_idx = in_shape.rank - 1 - shape_dim;
+		if (shape_dim == norm_axis) {
+			// Integer division to get original index
+			in_args.push_back(vars[var_idx] / repeats);
+		} else {
+			in_args.push_back(vars[var_idx]);
+		}
+	}
+
+	ret(vars) = f(in_args);
+	return ret;
+}
+
+/// @brief Infer output shape for repeat
+inline shape_t infer_repeat(const shape_t& in, int repeats, int axis) {
+	int norm_axis = normalized_axis(axis, in.rank);
+	shape_t res = in;
+	res.extents[norm_axis] = in.extents[norm_axis] * repeats;
+	return res;
+}
+
+/// @brief Pad mode enumeration
+enum class PadMode {
+	Constant,  // Pad with constant value
+	Edge,      // Pad with edge values
+	Reflect,   // Reflect values at boundary (not including edge)
+	Symmetric  // Reflect values at boundary (including edge)
+};
+
+/// @brief Pad array with specified width and mode
+/// @param f Input Func
+/// @param in_shape Shape of input
+/// @param pad_width Padding for each axis: {{before0, after0}, {before1, after1}, ...}
+/// @param mode Padding mode
+/// @param constant_value Value for constant padding
+/// @param name Function name
+/// @return Padded Func
+inline
+Halide::Func pad(Halide::Func f, const shape_t& in_shape,
+                 const std::vector<std::pair<int, int>>& pad_width,
+                 PadMode mode = PadMode::Constant,
+                 float constant_value = 0.0f,
+                 std::string const& name = "pad")
+{
+	nh_require(nullptr, static_cast<int>(pad_width.size()) == in_shape.rank,
+		"Pad width length %d does not match rank %d",
+		static_cast<int>(pad_width.size()), in_shape.rank);
+
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < in_shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	// Build clamped/padded input arguments
+	std::vector<Halide::Expr> in_args;
+	Halide::Expr in_bounds = Halide::cast<bool>(true);
+
+	for (int shape_dim = in_shape.rank - 1; shape_dim >= 0; --shape_dim) {
+		int var_idx = in_shape.rank - 1 - shape_dim;
+		int extent = in_shape.extents[shape_dim];
+		int pad_before = pad_width[shape_dim].first;
+		int pad_after = pad_width[shape_dim].second;
+
+		Halide::Expr idx = vars[var_idx] - pad_before;
+		Halide::Expr is_in = (idx >= 0) && (idx < extent);
+		in_bounds = in_bounds && is_in;
+
+		Halide::Expr mapped_idx;
+		switch (mode) {
+			case PadMode::Edge:
+				mapped_idx = Halide::clamp(idx, 0, extent - 1);
+				break;
+			case PadMode::Reflect:
+				// Reflect without edge: index -1 maps to 1, -2 to 2, etc.
+				mapped_idx = Halide::select(
+					idx < 0, -idx,
+					Halide::select(idx >= extent, 2 * extent - 2 - idx, idx)
+				);
+				mapped_idx = Halide::clamp(mapped_idx, 0, extent - 1);
+				break;
+			case PadMode::Symmetric:
+				// Reflect with edge: index -1 maps to 0, -2 to 1, etc.
+				mapped_idx = Halide::select(
+					idx < 0, -1 - idx,
+					Halide::select(idx >= extent, 2 * extent - 1 - idx, idx)
+				);
+				mapped_idx = Halide::clamp(mapped_idx, 0, extent - 1);
+				break;
+			default: // Constant
+				mapped_idx = idx;
+				break;
+		}
+		in_args.push_back(mapped_idx);
+	}
+
+	if (mode == PadMode::Constant) {
+		ret(vars) = Halide::select(in_bounds, f(in_args), constant_value);
+	} else {
+		ret(vars) = f(in_args);
+	}
+
+	return ret;
+}
+
+/// @brief Infer output shape for pad
+inline shape_t infer_pad(const shape_t& in, const std::vector<std::pair<int, int>>& pad_width) {
+	shape_t res = in;
+	for (int i = 0; i < in.rank && i < static_cast<int>(pad_width.size()); ++i) {
+		res.extents[i] = in.extents[i] + pad_width[i].first + pad_width[i].second;
+	}
+	return res;
+}
+
 NS_NUM_HALIDE_END

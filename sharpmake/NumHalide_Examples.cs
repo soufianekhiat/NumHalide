@@ -155,4 +155,74 @@ namespace NumHalide
 			SourceRootPath = RootPath + @"\examples\11_statistics";
 		}
 	}
+
+	[Sharpmake.Generate]
+	public class Example12_BoolReduce : ExampleProjectBase
+	{
+		public Example12_BoolReduce()
+		{
+			Name = "Example_12_bool_reduce";
+			SourceRootPath = RootPath + @"\examples\12_bool_reduce";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example13_ManipulationExt : ExampleProjectBase
+	{
+		public Example13_ManipulationExt()
+		{
+			Name = "Example_13_manipulation_ext";
+			SourceRootPath = RootPath + @"\examples\13_manipulation_ext";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example14_Comparisons : ExampleProjectBase
+	{
+		public Example14_Comparisons()
+		{
+			Name = "Example_14_comparisons";
+			SourceRootPath = RootPath + @"\examples\14_comparisons";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example16_Sorting : ExampleProjectBase
+	{
+		public Example16_Sorting()
+		{
+			Name = "Example_16_sorting";
+			SourceRootPath = RootPath + @"\examples\16_sorting";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example17_LinalgExt : ExampleProjectBase
+	{
+		public Example17_LinalgExt()
+		{
+			Name = "Example_17_linalg_ext";
+			SourceRootPath = RootPath + @"\examples\17_linalg_ext";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example19_Convolution : ExampleProjectBase
+	{
+		public Example19_Convolution()
+		{
+			Name = "Example_19_convolution";
+			SourceRootPath = RootPath + @"\examples\19_convolution";
+		}
+	}
+
+	[Sharpmake.Generate]
+	public class Example20_Interpolation : ExampleProjectBase
+	{
+		public Example20_Interpolation()
+		{
+			Name = "Example_20_interpolation";
+			SourceRootPath = RootPath + @"\examples\20_interpolation";
+		}
+	}
 }

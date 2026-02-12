@@ -41,6 +41,13 @@ namespace NumHalide
 			conf.AddProject<Example09_Masks>(target);
 			conf.AddProject<Example10_Scheduling>(target);
 			conf.AddProject<Example11_Statistics>(target);
+			conf.AddProject<Example12_BoolReduce>(target);
+			conf.AddProject<Example13_ManipulationExt>(target);
+			conf.AddProject<Example14_Comparisons>(target);
+			conf.AddProject<Example16_Sorting>(target);
+			conf.AddProject<Example17_LinalgExt>(target);
+			conf.AddProject<Example19_Convolution>(target);
+			conf.AddProject<Example20_Interpolation>(target);
 		}
 	}
 

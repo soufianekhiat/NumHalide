@@ -6,12 +6,21 @@
 
 - **Factory Functions**: `zeros`, `ones`, `full`, `linspace`, `arange`, `eye`, `meshgrid`
 - **Random Generation**: `rand_uniform`, `rand_normal`, `rand_int` with seed control
-- **Shape Manipulation**: `reshape`, `transpose`, `expand_dims`, `squeeze`, `moveaxis`
+- **Shape Manipulation**: `reshape`, `transpose`, `expand_dims`, `squeeze`, `moveaxis`, `flip`, `flipud`, `fliplr`, `rot90`, `roll`, `tile`, `repeat`, `pad`
 - **Slicing**: `slice`, `take` with NumPy-style indexing
 - **Stacking**: `concat`, `stack`, `vstack`, `hstack`
 - **Broadcasting**: Automatic shape broadcasting for binary operations
 - **Reductions**: `sum`, `mean`, `min`, `max`, `prod` with axis support
-- **Linear Algebra**: `matmul`, `dot`, `outer`, `matvec`, `trace`, `diag`
+- **Statistics**: `var`, `std` with axis support and ddof parameter
+- **Boolean Reductions**: `reduce_any`, `reduce_all`, `count_nonzero`
+- **Comparisons**: `equal`, `not_equal`, `greater`, `less`, `greater_equal`, `less_equal`
+- **Logical Operations**: `logical_and`, `logical_or`, `nh_logical_not`, `logical_xor`
+- **Special Value Detection**: `isnan_func`, `isinf_func`, `isfinite_func`
+- **Sorting**: `argmin`, `argmax`, `bitonic_sort`, `bitonic_argsort`, `searchsorted`
+- **Linear Algebra**: `matmul`, `dot`, `outer`, `matvec`, `trace`, `diag`, `norm`, `frobenius_norm`, `triu`, `tril`, `det2x2`, `det3x3`, `inv2x2`
+- **Convolution**: `convolve1d`, `convolve2d`, `convolve2d_separable`, `correlate2d`
+- **Convolution Kernels**: `box_kernel`, `gaussian_kernel_1d`, `sobel_x_kernel`, `sobel_y_kernel`, `laplacian_kernel`
+- **Interpolation**: `interp1d_uniform`, `resize_bilinear`, `resize_nearest`, `zoom`, `map_coordinates`
 - **Element-wise Ops**: `where`, `clip`, `astype`, math functions
 - **Scheduling Helpers**: `auto_tile`, `vectorize`, `parallel`, `full_optimize_2d`
 
@@ -59,10 +68,14 @@ NumHalide/
 │   ├── shape.h             # Shape utilities
 │   ├── broadcast.h         # Broadcasting
 │   ├── factory_func.h      # Array creation
-│   ├── manipulation_func.h # Reshape, transpose, slice
-│   ├── reduce.h            # Reductions
-│   ├── la.h                # Linear algebra
-│   ├── ops.h               # Element-wise operations
+│   ├── manipulation_func.h # Reshape, transpose, slice, flip, rot90, pad
+│   ├── reduce.h            # Reductions and boolean reductions
+│   ├── stats.h             # Statistics (var, std)
+│   ├── la.h                # Linear algebra (matmul, norm, triu/tril, det, inv)
+│   ├── ops.h               # Element-wise and comparison operations
+│   ├── sort.h              # Sorting (argmin, argmax, bitonic sort)
+│   ├── conv.h              # Convolution and correlation
+│   ├── interp.h            # Interpolation and resampling
 │   └── schedule.h          # Scheduling helpers
 ├── examples/               # Usage examples
 │   ├── 00_gradient/        # Basic gradient image
@@ -75,8 +88,16 @@ NumHalide/
 │   ├── 07_random/          # Random generation
 │   ├── 08_matmul/          # Matrix multiplication
 │   ├── 09_masks/           # Where and masking
-│   └── 10_scheduling/      # Performance optimization
-├── tests/                  # GoogleTest suite (91 tests)
+│   ├── 10_scheduling/      # Performance optimization
+│   ├── 11_statistics/      # Variance and standard deviation
+│   ├── 12_bool_reduce/     # Boolean reductions
+│   ├── 13_manipulation_ext/# Flip, rotate, tile, pad
+│   ├── 14_comparisons/     # Comparison and logical operations
+│   ├── 16_sorting/         # Sorting and search
+│   ├── 17_linalg_ext/      # Extended linear algebra
+│   ├── 19_convolution/     # Filter gallery
+│   └── 20_interpolation/   # Image resizing and warping
+├── tests/                  # GoogleTest suite (182 tests)
 └── sharpmake/              # Build system
 ```
 
@@ -158,6 +179,15 @@ Expr out = exp(-(cx * cx + cy * cy) / 0.25f);
 | `np.expand_dims(a, 0)` | `expand_dims(a, shape, 0)` |
 | `np.squeeze(a)` | `squeeze(a, shape)` |
 | `np.moveaxis(a, 0, 2)` | `moveaxis(a, shape, 0, 2)` |
+| `np.flip(a, axis)` | `flip(a, shape, axis)` |
+| `np.flipud(a)` | `flipud(a, shape)` |
+| `np.fliplr(a)` | `fliplr(a, shape)` |
+| `np.rot90(a)` | `rot90(a, shape)` |
+| `np.rot90(a, k=2)` | `rot90(a, shape, 2)` |
+| `np.roll(a, shift, axis)` | `roll(a, shape, shift, axis)` |
+| `np.tile(a, (2, 3))` | `tile(a, shape, {2, 3})` |
+| `np.repeat(a, 3, axis)` | `repeat(a, shape, 3, axis)` |
+| `np.pad(a, width, mode)` | `pad(a, shape, width, PadMode::Constant)` |
 
 ### Slicing
 
@@ -187,15 +217,95 @@ Expr out = exp(-(cx * cx + cy * cy) / 0.25f);
 | `np.max(a)` | `reduce::max(a, shape)` |
 | `np.prod(a)` | `reduce::prod(a, shape)` |
 
+### Statistics
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.var(a)` | `var(a, shape)` |
+| `np.var(a, axis=0)` | `var(a, shape, 0)` |
+| `np.var(a, ddof=1)` | `var(a, shape, 1)` (Bessel correction) |
+| `np.std(a)` | `std(a, shape)` |
+| `np.std(a, axis=0)` | `std(a, shape, 0)` |
+
+### Boolean Reductions
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.any(a)` | `reduce_any(a, shape)` |
+| `np.any(a, axis=0)` | `reduce_any(a, shape, 0)` |
+| `np.all(a)` | `reduce_all(a, shape)` |
+| `np.count_nonzero(a)` | `count_nonzero(a, shape)` |
+
 ### Linear Algebra
 
 | NumPy | NumHalide |
 | --- | --- |
-| `np.matmul(a, b)` / `a @ b` | `la::matmul(a, shape_a, b, shape_b)` |
-| `np.dot(a, b)` | `la::dot(a, shape_a, b, shape_b)` |
-| `np.outer(a, b)` | `la::outer(a, shape_a, b, shape_b)` |
-| `np.trace(a)` | `la::trace(a, shape)` |
-| `np.diag(a)` | `la::diag(a, shape)` |
+| `np.matmul(a, b)` / `a @ b` | `matmul(a, shape_a, b, shape_b)` |
+| `np.dot(a, b)` | `dot(a, shape_a, b, shape_b)` |
+| `np.outer(a, b)` | `outer(a, shape_a, b, shape_b)` |
+| `np.trace(a)` | `trace(a, shape)` |
+| `np.diag(a)` | `diag(a, shape)` |
+| `np.linalg.norm(v)` | `norm(v, shape)` |
+| `np.linalg.norm(m, 'fro')` | `frobenius_norm(m, shape)` |
+| `np.triu(a)` | `triu(a, shape)` |
+| `np.triu(a, k=1)` | `triu(a, shape, 1)` |
+| `np.tril(a)` | `tril(a, shape)` |
+| `np.linalg.det(a)` (2x2) | `det2x2(a)` |
+| `np.linalg.det(a)` (3x3) | `det3x3(a)` |
+| `np.linalg.inv(a)` (2x2) | `inv2x2(a)` |
+
+### Comparisons
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.equal(a, b)` | `equal(a, b, shape)` |
+| `np.not_equal(a, b)` | `not_equal(a, b, shape)` |
+| `np.greater(a, b)` | `greater(a, b, shape)` |
+| `np.less(a, b)` | `less(a, b, shape)` |
+| `np.greater_equal(a, b)` | `greater_equal(a, b, shape)` |
+| `np.less_equal(a, b)` | `less_equal(a, b, shape)` |
+| `np.logical_and(a, b)` | `logical_and(a, b, shape)` |
+| `np.logical_or(a, b)` | `logical_or(a, b, shape)` |
+| `np.logical_not(a)` | `nh_logical_not(a, shape)` |
+| `np.logical_xor(a, b)` | `logical_xor(a, b, shape)` |
+| `np.isnan(a)` | `isnan_func(a, shape)` |
+| `np.isinf(a)` | `isinf_func(a, shape)` |
+| `np.isfinite(a)` | `isfinite_func(a, shape)` |
+
+### Sorting and Search
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.argmin(a)` | `argmin(a, shape)` |
+| `np.argmax(a)` | `argmax(a, shape)` |
+| `np.sort(a)` | `bitonic_sort(a, size)` (power of 2) |
+| `np.argsort(a)` | `bitonic_argsort(a, size)` (power of 2) |
+| `np.searchsorted(a, v)` | `searchsorted(a, v, size, n)` |
+
+### Convolution
+
+| NumPy | NumHalide |
+| --- | --- |
+| `np.convolve(a, k)` | `convolve1d(a, shape, k, k_size)` |
+| `scipy.signal.convolve2d(a, k)` | `convolve2d(a, shape, k, k_rows, k_cols)` |
+| `scipy.signal.correlate2d(a, k)` | `correlate2d(a, shape, k, k_rows, k_cols)` |
+| `scipy.ndimage.convolve(a, k_x, k_y)` | `convolve2d_separable(a, shape, k_x, k_y, k_size)` |
+
+**Built-in Kernels:**
+- `box_kernel(size)` - Averaging filter
+- `gaussian_kernel_1d(size, sigma)` - Gaussian blur
+- `sobel_x_kernel()`, `sobel_y_kernel()` - Edge detection
+- `laplacian_kernel()` - Laplacian operator
+
+### Interpolation
+
+| NumPy / SciPy | NumHalide |
+| --- | --- |
+| `np.interp(x_new, x, y)` | `interp1d_uniform(y, shape, scale)` |
+| `cv2.resize(img, ..., INTER_LINEAR)` | `resize_bilinear(a, shape, out_h, out_w)` |
+| `cv2.resize(img, ..., INTER_NEAREST)` | `resize_nearest(a, shape, out_h, out_w)` |
+| `scipy.ndimage.zoom(a, factor)` | `zoom(a, shape, factor)` |
+| `scipy.ndimage.map_coordinates(a, coords)` | `map_coordinates(a, shape, coords_x, coords_y)` |
 
 ### Element-wise Operations
 

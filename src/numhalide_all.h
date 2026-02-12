@@ -17,3 +17,6 @@
 #include "la.h"
 #include "ops.h"
 #include "schedule.h"
+#include "sort.h"
+#include "conv.h"
+#include "interp.h"
