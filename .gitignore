@@ -39,11 +39,15 @@
 *.sharpmake.cs.dll
 projects/
 *.log
-tools/sharpmake/
+buildsystem/tools/
 tmp/
 numhalide_win64.sln
 .vs/
 working_dir/
+
+# CMake build output
+build/
+CMakeUserPresets.json
 *.map
 vcpkg_installed/
 

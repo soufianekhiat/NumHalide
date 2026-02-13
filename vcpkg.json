@@ -5,6 +5,6 @@
   "dependencies": [
     "gtest"
   ],
-  "builtin-baseline": "default",
+  "builtin-baseline": "594ad8871e1e8e45f8e626c015fd611163430207",
   "overrides": []
 }

@@ -82,20 +82,21 @@ Or if already cloned, initialize submodules:
 git submodule update --init --recursive
 ```
 
-2. Build Sharpmake (first time only):
+2. **Option A: CMake** (recommended)
+
+Requires [vcpkg](https://vcpkg.io/) with `VCPKG_ROOT` environment variable set.
 ```bash
-Startup.bat
+cmake --preset default
+cmake --build build --config Release
+ctest --preset default
 ```
 
-3. Generate Visual Studio projects:
+3. **Option B: Sharpmake**
 ```bash
-GenerateProjects.bat
+buildsystem\Startup.bat          # Build Sharpmake (first time only)
+buildsystem\GenerateProjects.bat  # Generate VS projects
 ```
-
-4. Open the generated solution:
-```
-NumHalide_win64.sln
-```
+Then open `NumHalide_win64.sln`.
 
 ## Project Structure
 
@@ -180,7 +181,7 @@ NumHalide/
 │   ├── 39_spectral/        # Spectral analysis
 │   └── 40_threshold/       # Thresholding techniques
 ├── tests/                  # GoogleTest suite
-└── sharpmake/              # Build system
+└── buildsystem/            # Build system (Sharpmake configs, scripts, tools)
 ```
 
 ## Quick Start

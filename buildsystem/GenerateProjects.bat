@@ -2,15 +2,15 @@
 
 echo Generating Visual Studio projects with Sharpmake...
 
-if not exist "tools\sharpmake\Sharpmake.Application.exe" (
+if not exist "buildsystem\tools\sharpmake\Sharpmake.Application.exe" (
     echo ERROR: Sharpmake not built yet!
-    echo Please run Startup.bat first to build Sharpmake.
+    echo Please run buildsystem\Startup.bat first to build Sharpmake.
     pause
     exit /b 1
 )
 
-set SHARPMAKE_FILE=sharpmake/main.cs
-tools\sharpmake\Sharpmake.Application.exe /sources('%SHARPMAKE_FILE%') /verbose
+set SHARPMAKE_FILE=buildsystem/sharpmake/main.cs
+buildsystem\tools\sharpmake\Sharpmake.Application.exe /sources('%SHARPMAKE_FILE%') /verbose
 
 if %ERRORLEVEL% EQU 0 (
     echo.

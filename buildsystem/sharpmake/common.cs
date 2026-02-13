@@ -7,7 +7,7 @@ namespace NumHalide
 {
 	static class Extern
 	{
-		static public string RootPath = @"[project.SharpmakeCsPath]\..";
+		static public string RootPath = @"[project.SharpmakeCsPath]\..\..";
 		static public string ExternPath = RootPath + @"\extern";
 	}
 
@@ -25,7 +25,7 @@ namespace NumHalide
 
 	public class CommonSolution : Sharpmake.Solution
 	{
-		public string SolutionRootPath = @"[solution.SharpmakeCsPath]\..";
+		public string SolutionRootPath = @"[solution.SharpmakeCsPath]\..\..";
 
 		public CommonSolution()
 			: base(typeof(NumHalideTarget))
@@ -34,7 +34,7 @@ namespace NumHalide
 
 	public class CommonProject : Sharpmake.Project
 	{
-		public string ProjectRootPath = @"[project.SharpmakeCsPath]\..";
+		public string ProjectRootPath = @"[project.SharpmakeCsPath]\..\..";
 		public string TmpPath = @"[project.ProjectRootPath]\tmp";
 		public string ExternPath = @"[project.ProjectRootPath]\extern";
 		public string ProjectsPath = @"[project.ProjectRootPath]\projects";
