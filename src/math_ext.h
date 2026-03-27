@@ -1,4 +1,4 @@
-/// @file math_ext.h
+﻿/// Note: exp, log, sqrt, abs, negative are already defined in broadcast.hnn// @file math_ext.h
 /// @brief Extended math functions
 ///
 /// Provides: exp2, log2, log10, expm1, log1p, square, cbrt,
@@ -247,6 +247,128 @@ Halide::Func nan_to_num(Halide::Func f, const shape_t& shape,
 		Halide::is_inf(val) && val < 0, neginf_val,
 		val
 	);
+	return ret;
+}
+
+// Note: exp, log, sqrt, abs, negative are already defined in broadcast.h
+
+// -----------------------------------------------------------------------------
+// Rounding Functions
+// -----------------------------------------------------------------------------
+
+/// @brief Round down to nearest integer element-wise
+inline
+Halide::Func floor(Halide::Func f, const shape_t& shape, std::string const& name = "floor_f")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	ret(vars) = Halide::floor(f(vars));
+	return ret;
+}
+
+/// @brief Round up to nearest integer element-wise
+inline
+Halide::Func ceil(Halide::Func f, const shape_t& shape, std::string const& name = "ceil_f")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	ret(vars) = Halide::ceil(f(vars));
+	return ret;
+}
+
+/// @brief Round to nearest integer element-wise
+inline
+Halide::Func round(Halide::Func f, const shape_t& shape, std::string const& name = "round_f")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	ret(vars) = Halide::round(f(vars));
+	return ret;
+}
+
+/// @brief Round to nearest integer element-wise (alias for round)
+inline
+Halide::Func rint(Halide::Func f, const shape_t& shape, std::string const& name = "rint_f")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	ret(vars) = Halide::round(f(vars));
+	return ret;
+}
+
+/// @brief Truncate toward zero element-wise
+inline
+Halide::Func trunc(Halide::Func f, const shape_t& shape, std::string const& name = "trunc_f")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	ret(vars) = Halide::trunc(f(vars));
+	return ret;
+}
+
+/// @brief Truncate toward zero element-wise (NumPy's fix, alias for trunc)
+inline
+Halide::Func fix(Halide::Func f, const shape_t& shape, std::string const& name = "fix_f")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	ret(vars) = Halide::trunc(f(vars));
+	return ret;
+}
+
+// -----------------------------------------------------------------------------
+// Power Functions
+// -----------------------------------------------------------------------------
+
+/// @brief Compute base^exponent element-wise (Func exponent)
+inline
+Halide::Func power(Halide::Func base, Halide::Func exponent, const shape_t& shape, std::string const& name = "power_f")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	ret(vars) = Halide::pow(base(vars), exponent(vars));
+	return ret;
+}
+
+/// @brief Compute base^exponent element-wise (scalar Expr exponent)
+inline
+Halide::Func power(Halide::Func base, Halide::Expr exponent, const shape_t& shape, std::string const& name = "power_f")
+{
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i) {
+		vars.push_back(Halide::Var());
+	}
+
+	ret(vars) = Halide::pow(base(vars), exponent);
 	return ret;
 }
 

@@ -13,6 +13,7 @@ function(numhalide_set_target_options target)
             /utf-8
             /GR-          # Disable RTTI (matches Sharpmake config)
             /EHsc         # Enable exceptions
+            /FS           # Serialize PDB writes (required when /MP is active)
         )
         target_compile_definitions(${target} PRIVATE
             _ENABLE_EXTENDED_ALIGNED_STORAGE

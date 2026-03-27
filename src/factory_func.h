@@ -497,4 +497,148 @@ Halide::Func ones_like(Halide::Type type, const shape_t& shape, std::string cons
 	return ones(type, shape, name);
 }
 
+/// @brief Return empty (uninitialized) Func with same type as reference
+inline
+Halide::Func empty_like(Halide::Func f, const shape_t& shape,
+	std::string const& name = "empty_like")
+{
+	Halide::Type type = f.types()[0];
+	Halide::Func ret(name);
+	std::vector<Halide::Var> vars;
+	for (int i = 0; i < shape.rank; ++i)
+		vars.push_back(Halide::Var());
+	ret(vars) = Halide::Internal::make_const(type, 0);
+	return ret;
+}
+
+// -----------------------------------------------------------------------------
+// Logarithmically / Geometrically Spaced Sequences
+// -----------------------------------------------------------------------------
+
+/// @brief Logarithmically spaced values: base^linspace(start, stop, num)
+/// Returns 1D Func where result(x) = base^(start + x*(stop-start)/(num-1)) for endpoint=true
+inline
+Halide::Func logspace(Halide::Type type, Halide::Expr _start, Halide::Expr _stop,
+	int num, float base = 10.0f, bool endpoint = true,
+	std::string const& name = "logspace")
+{
+	Halide::Func ret(name);
+	Halide::Var x;
+	Halide::Expr start = Halide::cast(type, _start);
+	Halide::Expr stop  = Halide::cast(type, _stop);
+	Halide::Expr step  = endpoint
+		? (stop - start) / Halide::cast(type, num - 1)
+		: (stop - start) / Halide::cast(type, num);
+	Halide::Expr exponent = start + Halide::cast(type, x) * step;
+	ret(x) = Halide::pow(Halide::cast(type, base), exponent);
+	return ret;
+}
+
+/// @brief Geometrically spaced values: exp(linspace(log(start), log(stop), num))
+inline
+Halide::Func geomspace(Halide::Type type, Halide::Expr _start, Halide::Expr _stop,
+	int num, bool endpoint = true,
+	std::string const& name = "geomspace")
+{
+	Halide::Func ret(name);
+	Halide::Var x;
+	Halide::Expr start     = Halide::cast(type, _start);
+	Halide::Expr stop      = Halide::cast(type, _stop);
+	Halide::Expr log_start = Halide::log(start);
+	Halide::Expr log_stop  = Halide::log(stop);
+	Halide::Expr step = endpoint
+		? (log_stop - log_start) / Halide::cast(type, num - 1)
+		: (log_stop - log_start) / Halide::cast(type, num);
+	ret(x) = Halide::exp(log_start + Halide::cast(type, x) * step);
+	return ret;
+}
+
+// -----------------------------------------------------------------------------
+// Matrix-Generating Functions
+// -----------------------------------------------------------------------------
+
+/// @brief Identity-like matrix with 1s on the k-th diagonal
+/// @param N Number of rows
+/// @param M Number of columns (default = N)
+/// @param k Diagonal offset (0=main, >0=above, <0=below)
+/// In Halide: ret(x, y) where x=col, y=row. Entry = 1 iff x - y == k.
+inline
+Halide::Func eye(Halide::Type type, int N, int M = -1, int k = 0,
+	std::string const& name = "eye")
+{
+	if (M < 0) M = N;
+	Halide::Func ret(name);
+	Halide::Var x("x"), y("y");
+	ret(x, y) = Halide::select(x - y == k,
+		Halide::cast(type, 1), Halide::cast(type, 0));
+	return ret;
+}
+
+/// @brief Lower-triangular matrix filled with ones
+/// @param k Diagonal offset (0=main, >0=above main, <0=below main)
+/// ret(x, y) = 1 iff x <= y + k (i.e. col <= row + k)
+inline
+Halide::Func tri(Halide::Type type, int N, int M = -1, int k = 0,
+	std::string const& name = "tri")
+{
+	if (M < 0) M = N;
+	Halide::Func ret(name);
+	Halide::Var x("x"), y("y");
+	ret(x, y) = Halide::select(x <= y + k,
+		Halide::cast(type, 1), Halide::cast(type, 0));
+	return ret;
+}
+
+/// @brief Vandermonde matrix from 1D array x
+/// @param x_vals 1D Func of values (size = n_rows)
+/// @param n_cols Number of columns (powers 0..n_cols-1 if increasing, else n_cols-1..0)
+/// @param increasing If true, powers increase left-to-right (NumPy default is decreasing)
+/// In Halide: ret(col, row). entry = x_vals(row)^power.
+inline
+Halide::Func vander(Halide::Func x_vals, int n_cols, bool increasing = false,
+	std::string const& name = "vander")
+{
+	Halide::Func ret(name);
+	Halide::Var col("col"), row("row");
+	Halide::Expr power_idx = Halide::select(increasing,
+		Halide::cast<int32_t>(col),
+		Halide::cast<int32_t>(n_cols - 1 - col));
+	ret(col, row) = Halide::pow(x_vals(row), Halide::cast(x_vals.types()[0], power_idx));
+	return ret;
+}
+
+// -----------------------------------------------------------------------------
+// Index Grid
+// -----------------------------------------------------------------------------
+
+/// @brief Return a vector of index Funcs, one per shape dimension
+/// @param shape  Shape of the grid
+/// @return vector<Func> where result[d](vars) gives the index along shape dim d
+///
+/// For shape {M, N}: result[0](x,y) = y (row index), result[1](x,y) = x (col index)
+/// Equivalent to numpy.indices(shape): the d-th returned Func gives coordinates
+/// along the d-th axis.
+///
+/// Usage:
+///   auto idx = indices({3, 4});
+///   // idx[0] → row indices [0..2], idx[1] → col indices [0..3]
+inline
+std::vector<Halide::Func> indices(const shape_t& shape,
+    std::string const& name = "indices")
+{
+    int rank = shape.rank;
+    std::vector<Halide::Var> vars;
+    for (int i = 0; i < rank; ++i) vars.push_back(Halide::Var());
+
+    std::vector<Halide::Func> result;
+    for (int d = 0; d < rank; ++d) {
+        // shape dim d → Halide dim (rank-1-d)
+        int halide_d = rank - 1 - d;
+        Halide::Func f(name + "_d" + std::to_string(d));
+        f(vars) = Halide::cast<int32_t>(vars[halide_d]);
+        result.push_back(f);
+    }
+    return result;
+}
+
 NS_NUM_HALIDE_END

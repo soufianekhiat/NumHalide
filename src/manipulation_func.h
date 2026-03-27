@@ -878,4 +878,180 @@ inline shape_t infer_pad(const shape_t& in, const std::vector<std::pair<int, int
 	return res;
 }
 
+// -----------------------------------------------------------------------------
+// Axis Manipulation
+// -----------------------------------------------------------------------------
+
+/// @brief Swap two axes of an array
+/// @param f Input Func
+/// @param in_shape Input shape
+/// @param axis1 First axis (can be negative)
+/// @param axis2 Second axis (can be negative)
+/// @param name Function name
+/// @return Func with axes swapped
+///
+/// Dimension mapping: shape dim d → Halide var index (rank-1-d)
+/// Swapping shape dims axis1, axis2 = swapping Halide dims (rank-1-axis1), (rank-1-axis2)
+inline
+Halide::Func swapaxes(Halide::Func f, const shape_t& in_shape, int axis1, int axis2,
+    std::string const& name = "swapaxes")
+{
+    int norm_ax1 = normalized_axis(axis1, in_shape.rank);
+    int norm_ax2 = normalized_axis(axis2, in_shape.rank);
+
+    std::vector<Halide::Var> out_vars;
+    for (int i = 0; i < in_shape.rank; ++i) out_vars.push_back(Halide::Var());
+
+    // Build in_args: normally in_args[i] = out_vars[i]
+    // For the swapped halide dims, exchange them
+    std::vector<Halide::Expr> in_args(in_shape.rank);
+    for (int i = 0; i < in_shape.rank; ++i) in_args[i] = out_vars[i];
+
+    int halide_ax1 = in_shape.rank - 1 - norm_ax1;
+    int halide_ax2 = in_shape.rank - 1 - norm_ax2;
+    std::swap(in_args[halide_ax1], in_args[halide_ax2]);
+
+    Halide::Func ret(name);
+    ret(out_vars) = f(in_args);
+    return ret;
+}
+
+/// @brief Stack 1D arrays as columns to form 2D array
+/// @param arrays Vector of 1D Funcs (each size n_rows)
+/// @param n_rows Number of rows (size of each 1D array)
+/// @param name Function name
+/// @return 2D Func: ret(col, row) = arrays[col](row)
+///
+/// Equivalent to np.column_stack for 1D inputs.
+/// Output shape: {n_rows, k} where k = arrays.size()
+inline
+Halide::Func column_stack(const std::vector<Halide::Func>& arrays, int n_rows,
+    std::string const& name = "column_stack")
+{
+    int k = static_cast<int>(arrays.size());
+    nh_require(nullptr, k > 0, "column_stack requires at least one array");
+
+    Halide::Func ret(name);
+    Halide::Var col("col"), row("row");
+
+    // Build select chain: ret(col, row) = arrays[col](row)
+    Halide::Expr result = arrays[k - 1](row);
+    for (int i = k - 2; i >= 0; --i) {
+        result = Halide::select(col == i, arrays[i](row), result);
+    }
+    ret(col, row) = result;
+    return ret;
+}
+
+/// @brief Stack arrays vertically (same as vstack)
+/// @param arrays Vector of Funcs (same column count)
+/// @param shapes Shapes of each array (all must be 1D or 2D with same cols)
+/// @param name Function name
+/// @return 2D Func with arrays stacked vertically
+///
+/// For 1D arrays of size n: treated as (1, n) rows. Then stacked.
+/// ret(col, row) where row selects the array and col the element.
+inline
+Halide::Func row_stack(const std::vector<Halide::Func>& arrays,
+    const std::vector<shape_t>& shapes,
+    std::string const& name = "row_stack")
+{
+    // For 1D arrays: each becomes a single row
+    int k = static_cast<int>(arrays.size());
+    nh_require(nullptr, k > 0, "row_stack requires at least one array");
+
+    Halide::Func ret(name);
+    Halide::Var col("col"), row("row");
+
+    // Each 1D array[i] contributes 1 row at row==i
+    // ret(col, row) = arrays[row](col)
+    Halide::Expr result = arrays[k - 1](col);
+    for (int i = k - 2; i >= 0; --i) {
+        result = Halide::select(row == i, arrays[i](col), result);
+    }
+    ret(col, row) = result;
+    return ret;
+}
+
+/// @brief Ensure array has at least 1 dimension (returns {f, shape} pair)
+/// For rank-0: wraps scalar in 1D of size 1.
+/// For rank >= 1: returns as-is.
+inline
+std::pair<Halide::Func, shape_t> atleast_1d(Halide::Func f, const shape_t& shape,
+    std::string const& name = "atleast_1d")
+{
+    if (shape.rank >= 1) return {f, shape};
+    // rank 0: scalar → (1,)
+    Halide::Func ret(name);
+    Halide::Var x;
+    ret(x) = f();
+    return {ret, shape_t{1}};
+}
+
+/// @brief Ensure array has at least 2 dimensions
+/// rank 0 → (1,1), rank 1 (n,) → (1,n), rank >= 2 unchanged.
+/// In NumHalide: (1,n) means extents[0]=1, extents[1]=n
+///   → Halide: ret(x, y) where x goes 0..n-1, y goes 0..0
+inline
+std::pair<Halide::Func, shape_t> atleast_2d(Halide::Func f, const shape_t& shape,
+    std::string const& name = "atleast_2d")
+{
+    if (shape.rank >= 2) return {f, shape};
+    if (shape.rank == 1) {
+        // (n,) → (1, n): row=0, col=0..n-1
+        // Halide: ret(x, y) = f(x)  [x inner=cols, y outer=row, y is always 0]
+        Halide::Func ret(name);
+        Halide::Var x("x"), y("y");
+        ret(x, y) = f(x);
+        shape_t new_shape{1, shape.extents[0]};
+        return {ret, new_shape};
+    }
+    // rank 0
+    Halide::Func ret(name);
+    Halide::Var x("x"), y("y");
+    ret(x, y) = f();
+    return {ret, shape_t{1, 1}};
+}
+
+/// @brief Ensure array has at least 3 dimensions
+/// rank 0 → (1,1,1)
+/// rank 1 (n,) → (1,n,1)  [NumPy: (1,n,1)]
+/// rank 2 (m,n) → (m,n,1)  [NumPy: (m,n,1)]
+/// rank >= 3: unchanged
+///
+/// Dimension note for rank-2 → rank-3:
+///   Input shape {m, n}: Halide ret_2d(x, y) where x=cols(n), y=rows(m)
+///   Output shape {m, n, 1}: Halide ret_3d(x, y, z) where x=inner(1), y=middle(n), z=outer(m)
+///   So ret_3d(x, y, z) = f(y, z)
+inline
+std::pair<Halide::Func, shape_t> atleast_3d(Halide::Func f, const shape_t& shape,
+    std::string const& name = "atleast_3d")
+{
+    if (shape.rank >= 3) return {f, shape};
+    if (shape.rank == 2) {
+        // (m, n) → (m, n, 1)
+        Halide::Func ret(name);
+        Halide::Var x("x"), y("y"), z("z");
+        // shape {m,n}: Halide dim 0=x=n(cols), dim 1=y=m(rows)
+        // shape {m,n,1}: Halide dim 0=x=1(inner), dim 1=y=n, dim 2=z=m
+        ret(x, y, z) = f(y, z);
+        shape_t new_shape{shape.extents[0], shape.extents[1], 1};
+        return {ret, new_shape};
+    }
+    if (shape.rank == 1) {
+        // (n,) → (1, n, 1)
+        // shape {1,n,1}: dim 0=x=1(inner), dim 1=y=n, dim 2=z=1(outer)
+        Halide::Func ret(name);
+        Halide::Var x("x"), y("y"), z("z");
+        ret(x, y, z) = f(y);
+        shape_t new_shape{1, shape.extents[0], 1};
+        return {ret, new_shape};
+    }
+    // rank 0
+    Halide::Func ret(name);
+    Halide::Var x("x"), y("y"), z("z");
+    ret(x, y, z) = f();
+    return {ret, shape_t{1, 1, 1}};
+}
+
 NS_NUM_HALIDE_END

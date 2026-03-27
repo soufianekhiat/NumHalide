@@ -62,6 +62,15 @@ namespace NumHalide
 
 			// Copy Halide.dll to output directory
 			conf.TargetCopyFiles.Add(@"[project.ExternPath]/Halide/bin/RelWithDebInfo/Halide.dll");
+
+			// CRT fix: the pre-built Halide.dll (RelWithDebInfo) uses a mixed CRT:
+			//   Release C++ stdlib (MSVCP140.dll) + Debug C runtime (VCRUNTIME140D.dll, ucrtbased.dll)
+			// With /MD alone the VCRUNTIME version mismatches and JIT hangs.
+			// Fix: keep /MD (so MSVCP matches) but replace vcruntime/ucrt with their debug variants.
+			conf.AdditionalLinkerOptions.Add("/NODEFAULTLIB:vcruntime.lib");
+			conf.AdditionalLinkerOptions.Add("/NODEFAULTLIB:ucrt.lib");
+			conf.LibraryFiles.Add("vcruntimed.lib");
+			conf.LibraryFiles.Add("ucrtd.lib");
 		}
 
 		[Configure()]

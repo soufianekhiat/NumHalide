@@ -343,4 +343,94 @@ Halide::Func bitonic_argsort(Halide::Func input, int size, std::string const& na
     return result;
 }
 
+// -----------------------------------------------------------------------------
+// General Sort (rank sort, O(n^2), any size)
+// -----------------------------------------------------------------------------
+
+/// @brief Sort a 1D array (ascending or descending), any size
+/// @param f Input 1D Func
+/// @param n Size of array
+/// @param ascending If true, sort ascending; if false, descending
+/// @param name Function name
+/// @return Sorted 1D Func
+///
+/// Uses rank sort (counting sort variant): O(n^2) but works for any size.
+/// For power-of-2 sizes with better performance, use bitonic_sort.
+inline
+Halide::Func sort_1d(Halide::Func f, int n, bool ascending = true,
+    std::string const& name = "sort_1d")
+{
+    Halide::Var i("i");
+
+    // Step 1: Compute rank of each element
+    // rank[i] = number of elements strictly less (ascending) than f[i]
+    //         + number of equal elements with smaller index (stable sort)
+    Halide::Func rank_f(name + "_rank");
+    rank_f(i) = Halide::cast<int32_t>(0);
+    Halide::RDom rj(0, n, "rj_sort");
+    Halide::Expr fi = f(i);
+    Halide::Expr fj = f(rj);
+    rank_f(i) += Halide::select(
+        ascending
+            ? (fj < fi || (fj == fi && rj < i))
+            : (fj > fi || (fj == fi && rj < i)),
+        Halide::cast<int32_t>(1),
+        Halide::cast<int32_t>(0)
+    );
+    rank_f.compute_root();
+
+    // Step 2: Gather - sorted[rank[j]] = f[j]
+    Halide::Func ret(name);
+    Halide::Type type = f.types()[0];
+    ret(i) = Halide::Internal::make_const(type, 0);
+    Halide::RDom rj2(0, n, "rj2_sort");
+    ret(i) += Halide::select(
+        rank_f(rj2) == i,
+        f(rj2),
+        Halide::Internal::make_const(type, 0)
+    );
+
+    return ret;
+}
+
+/// @brief Get indices that would sort a 1D array (argsort), any size
+/// @param f Input 1D Func
+/// @param n Size of array
+/// @param ascending If true, sort ascending; if false, descending
+/// @param name Function name
+/// @return 1D Int32 Func with indices
+inline
+Halide::Func argsort_1d(Halide::Func f, int n, bool ascending = true,
+    std::string const& name = "argsort_1d")
+{
+    Halide::Var i("i");
+
+    // Compute rank (same as sort_1d)
+    Halide::Func rank_f(name + "_rank");
+    rank_f(i) = Halide::cast<int32_t>(0);
+    Halide::RDom rj(0, n, "rj_asort");
+    Halide::Expr fi = f(i);
+    Halide::Expr fj = f(rj);
+    rank_f(i) += Halide::select(
+        ascending
+            ? (fj < fi || (fj == fi && rj < i))
+            : (fj > fi || (fj == fi && rj < i)),
+        Halide::cast<int32_t>(1),
+        Halide::cast<int32_t>(0)
+    );
+    rank_f.compute_root();
+
+    // Gather indices: argsorted[rank[j]] = j
+    Halide::Func ret(name);
+    ret(i) = Halide::cast<int32_t>(0);
+    Halide::RDom rj2(0, n, "rj2_asort");
+    ret(i) += Halide::select(
+        rank_f(rj2) == i,
+        rj2,
+        Halide::cast<int32_t>(0)
+    );
+
+    return ret;
+}
+
 NS_NUM_HALIDE_END

@@ -501,4 +501,68 @@ Halide::Func isfinite_func(Halide::Func a, const shape_t& shape, std::string con
 	return ret;
 }
 
+// -----------------------------------------------------------------------------
+// Choose and Piecewise
+// -----------------------------------------------------------------------------
+
+/// @brief Select from an array of Funcs based on an integer index Func
+/// @param indices  Func returning integer index (same shape as output)
+/// @param choices  Vector of Funcs to choose from; each has the same shape
+/// @param shape    Output shape
+///
+/// result(vars) = choices[indices(vars)](vars)
+///
+/// Equivalent to numpy.choose(indices, choices, mode='raise')
+inline
+Halide::Func choose(Halide::Func indices, const std::vector<Halide::Func>& choices,
+    const shape_t& shape, std::string const& name = "choose")
+{
+    nh_require(nullptr, !choices.empty(), "choose: choices must not be empty");
+    int n = (int)choices.size();
+    std::vector<Halide::Var> vars;
+    for (int i = 0; i < shape.rank; ++i) vars.push_back(Halide::Var());
+
+    Halide::Expr idx = indices(vars);
+    // Build select chain (last choice is the fallback)
+    Halide::Expr result = choices[n - 1](vars);
+    for (int k = n - 2; k >= 0; --k) {
+        result = Halide::select(idx == k, choices[k](vars), result);
+    }
+    Halide::Func ret(name);
+    ret(vars) = result;
+    return ret;
+}
+
+/// @brief Piecewise function: result = values[k] where the first conditions[k] is true
+/// @param conditions  Vector of boolean (or int) Funcs; first matching wins
+/// @param values      Vector of value Funcs (same count as conditions)
+/// @param shape       Output shape
+///
+/// Equivalent to numpy.piecewise(x, condlist, funclist)
+/// with pre-evaluated condition and value Funcs.
+inline
+Halide::Func piecewise(const std::vector<Halide::Func>& conditions,
+    const std::vector<Halide::Func>& values,
+    const shape_t& shape,
+    std::string const& name = "piecewise")
+{
+    nh_require(nullptr, !conditions.empty(), "piecewise: no pieces");
+    nh_require(nullptr, conditions.size() == values.size(),
+        "piecewise: conditions and values must have the same size");
+    int n = (int)conditions.size();
+    std::vector<Halide::Var> vars;
+    for (int i = 0; i < shape.rank; ++i) vars.push_back(Halide::Var());
+
+    Halide::Type vtype = values[0].types()[0];
+    Halide::Expr result = Halide::Internal::make_const(vtype, 0); // default = 0
+    // Build from last to first so first match has highest priority
+    for (int k = n - 1; k >= 0; --k) {
+        result = Halide::select(Halide::cast<bool>(conditions[k](vars)),
+            values[k](vars), result);
+    }
+    Halide::Func ret(name);
+    ret(vars) = result;
+    return ret;
+}
+
 NS_NUM_HALIDE_END

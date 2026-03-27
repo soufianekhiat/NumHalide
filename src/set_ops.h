@@ -323,4 +323,78 @@ Halide::Func union1d(Halide::Func a, Halide::Func b,
     return union1d_sorted(sorted_a, sorted_b, size_a, size_b, name);
 }
 
+// -----------------------------------------------------------------------------
+// Symmetric Difference and Membership
+// -----------------------------------------------------------------------------
+
+/// @brief Symmetric difference of two sorted arrays (elements in exactly one)
+/// @param sorted_a First sorted 1D Func
+/// @param sorted_b Second sorted 1D Func
+/// @param size_a Size of first array
+/// @param size_b Size of second array
+/// @param name Function name
+/// @return Tuple Func at positions [0..size_a+size_b-1]: (value, valid_mask)
+///
+/// Elements valid if in a but not b, OR in b but not a.
+inline
+Halide::Func setxor1d_sorted(Halide::Func sorted_a, Halide::Func sorted_b,
+    int size_a, int size_b,
+    std::string const& name = "setxor1d")
+{
+    // Elements in a not in b
+    auto in_b_from_a = in1d(sorted_a, sorted_b, size_a, size_b, name + "_inb");
+    auto marked_a    = mark_unique(sorted_a, size_a, name + "_marka");
+    marked_a.compute_root();
+
+    // Elements in b not in a
+    auto in_a_from_b = in1d(sorted_b, sorted_a, size_b, size_a, name + "_ina");
+    auto marked_b    = mark_unique(sorted_b, size_b, name + "_markb");
+    marked_b.compute_root();
+
+    Halide::Func ret(name);
+    Halide::Var x("x");
+
+    Halide::Expr in_a_section = x < size_a;
+
+    Halide::Expr val = Halide::select(in_a_section, sorted_a(x), sorted_b(x - size_a));
+
+    Halide::Expr is_valid = Halide::select(
+        in_a_section,
+        (marked_a(x)[1] == 1) && (in_b_from_a(x) == 0),
+        (marked_b(x - size_a)[1] == 1) && (in_a_from_b(x - size_a) == 0)
+    );
+
+    ret(x) = Halide::Tuple(val, Halide::select(is_valid, 1, 0));
+    return ret;
+}
+
+/// @brief Test element-wise membership: is elements(i) in test_against?
+/// @param elements Values to test (can be 2D or any shape, tested element-wise)
+/// @param test_against Values to test against (1D sorted array)
+/// @param elem_shape Shape of elements array
+/// @param against_size Size of test_against array
+/// @param name Function name
+/// @return Func of same shape as elements, 1 if element found in test_against, 0 otherwise
+inline
+Halide::Func isin(Halide::Func elements, Halide::Func test_against,
+    const shape_t& elem_shape, int against_size,
+    std::string const& name = "isin")
+{
+    // Flatten elements to 1D conceptually, do membership test, reshape back
+    // Since Halide Funcs can be accessed at arbitrary coords, we just apply
+    // the membership test at each point of elem_shape
+
+    Halide::Func ret(name);
+    std::vector<Halide::Var> vars;
+    for (int d = 0; d < elem_shape.rank; ++d) vars.push_back(Halide::Var());
+
+    Halide::Expr val = elements(vars);
+    Halide::RDom r(0, against_size, "r_isin");
+
+    // Check if val exists in test_against
+    ret(vars) = Halide::maximum(Halide::select(test_against(r) == val, 1, 0));
+
+    return ret;
+}
+
 NS_NUM_HALIDE_END
