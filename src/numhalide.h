@@ -1,6 +1,6 @@
 #pragma once
 
-#include <Halide.h>
+#include "IncludeHalide.h"
 
 // Simplified namespace - we only support Func-based operations
 #define NS_NUM_HALIDE_BEGIN	namespace numhalide {

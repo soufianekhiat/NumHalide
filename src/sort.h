@@ -13,6 +13,7 @@
 #include "numhalide.h"
 #include "shape.h"
 #include "reduce.h"
+#include <limits>
 
 NS_NUM_HALIDE_BEGIN
 
@@ -431,6 +432,341 @@ Halide::Func argsort_1d(Halide::Func f, int n, bool ascending = true,
     );
 
     return ret;
+}
+
+// -----------------------------------------------------------------------------
+// Fast Sort (O(N log^2 N) via bitonic, arbitrary N via padding)
+// -----------------------------------------------------------------------------
+
+/// @brief Sort a 1D array in O(N log^2 N) using bitonic sort with padding for non-power-of-2
+inline
+Halide::Func sort_1d_fast(Halide::Func f, int n, bool ascending = true,
+    std::string const& name = "sort_1d_fast")
+{
+    int padded = 1;
+    while (padded < n) padded <<= 1;
+
+    Halide::Type type = f.types()[0];
+    auto make_sentinel = [&]() -> Halide::Expr {
+        if (type.is_float())
+            return ascending
+                ? Halide::cast(type, std::numeric_limits<float>::infinity())
+                : Halide::cast(type, -std::numeric_limits<float>::infinity());
+        return ascending
+            ? Halide::cast(type, std::numeric_limits<int32_t>::max())
+            : Halide::cast(type, std::numeric_limits<int32_t>::min());
+    };
+
+    Halide::Func work(name + "_work");
+    Halide::Var x("x");
+    if (padded > n)
+        work(x) = Halide::select(x < n, f(Halide::clamp(x, 0, n - 1)), make_sentinel());
+    else
+        work(x) = f(x);
+    work.compute_root();
+
+    Halide::Func next, prev = work;
+    for (int pass_size = 1; pass_size < padded; pass_size <<= 1) {
+        for (int chunk_size = pass_size; chunk_size > 0; chunk_size >>= 1) {
+            next = Halide::Func(name + "_s");
+            Halide::Expr cs   = (x / (2 * chunk_size)) * (2 * chunk_size);
+            Halide::Expr ce   = (x / (2 * chunk_size) + 1) * (2 * chunk_size);
+            Halide::Expr cm   = cs + chunk_size;
+            Halide::Expr partner;
+            if (pass_size == chunk_size && pass_size > 1)
+                partner = Halide::clamp(2 * cm - x - 1, cs, ce - 1);
+            else
+                partner = cs + (x - cs + chunk_size) % (2 * chunk_size);
+            Halide::Expr av = prev(x), bv = prev(partner);
+            if (ascending)
+                next(x) = Halide::select(x < cm, Halide::min(av, bv), Halide::max(av, bv));
+            else
+                next(x) = Halide::select(x < cm, Halide::max(av, bv), Halide::min(av, bv));
+            next.compute_root();
+            prev = next;
+        }
+    }
+    Halide::Func result(name);
+    result(x) = prev(x);
+    return result;
+}
+
+/// @brief Argsort a 1D array in O(N log^2 N) via bitonic sort with padding
+inline
+Halide::Func argsort_1d_fast(Halide::Func f, int n, bool ascending = true,
+    std::string const& name = "argsort_1d_fast")
+{
+    int padded = 1;
+    while (padded < n) padded <<= 1;
+
+    Halide::Type type = f.types()[0];
+    auto make_sentinel = [&]() -> Halide::Expr {
+        if (type.is_float())
+            return ascending
+                ? Halide::cast(type, std::numeric_limits<float>::infinity())
+                : Halide::cast(type, -std::numeric_limits<float>::infinity());
+        return ascending
+            ? Halide::cast(type, std::numeric_limits<int32_t>::max())
+            : Halide::cast(type, std::numeric_limits<int32_t>::min());
+    };
+
+    Halide::Func indexed(name + "_idx");
+    Halide::Var x("x");
+    if (padded > n)
+        indexed(x) = Halide::Tuple(
+            Halide::select(x < n, f(Halide::clamp(x, 0, n - 1)), make_sentinel()),
+            Halide::select(x < n, x, padded + n));  // sentinel index > valid range
+    else
+        indexed(x) = Halide::Tuple(f(x), x);
+    indexed.compute_root();
+
+    Halide::Func next, prev = indexed;
+    for (int pass_size = 1; pass_size < padded; pass_size <<= 1) {
+        for (int chunk_size = pass_size; chunk_size > 0; chunk_size >>= 1) {
+            next = Halide::Func(name + "_s");
+            Halide::Expr cs     = (x / (2 * chunk_size)) * (2 * chunk_size);
+            Halide::Expr ce     = (x / (2 * chunk_size) + 1) * (2 * chunk_size);
+            Halide::Expr cm     = cs + chunk_size;
+            Halide::Expr partner;
+            if (pass_size == chunk_size && pass_size > 1)
+                partner = Halide::clamp(2 * cm - x - 1, cs, ce - 1);
+            else
+                partner = cs + (x - cs + chunk_size) % (2 * chunk_size);
+            Halide::Expr my_v   = prev(x)[0];
+            Halide::Expr my_i   = prev(x)[1];
+            Halide::Expr pt_v   = prev(partner)[0];
+            Halide::Expr pt_i   = prev(partner)[1];
+            Halide::Expr want_me = ascending
+                ? Halide::select(x < cm, my_v <= pt_v, my_v > pt_v)
+                : Halide::select(x < cm, my_v >= pt_v, my_v < pt_v);
+            next(x) = Halide::select(want_me,
+                Halide::Tuple(my_v, my_i),
+                Halide::Tuple(pt_v, pt_i));
+            next.compute_root();
+            prev = next;
+        }
+    }
+    Halide::Func result(name);
+    result(x) = prev(x)[1];
+    return result;
+}
+
+// -----------------------------------------------------------------------------
+// 2D Batched Sort via bitonic network
+// -----------------------------------------------------------------------------
+
+/// @brief Sort a 2D array along axis 1 (sort each row) or axis 0 (sort each column)
+/// @param input   2D Func  f(col, row)
+/// @param rows    Number of rows
+/// @param cols    Number of columns
+/// @param axis    1 = sort along cols (each row gets sorted), 0 = sort along rows (each col)
+/// @param ascending  true = ascending order
+/// @param name    Base Func name
+/// @return Sorted 2D Func (same domain)
+///
+/// Uses the bitonic network; sort dimension is padded to next power of 2 if needed.
+inline
+Halide::Func sort_2d(Halide::Func input, int rows, int cols,
+    int axis = 1, bool ascending = true,
+    std::string const& name = "sort_2d")
+{
+    Halide::Var x("x"), y("y");
+    Halide::Type type = input.types()[0];
+
+    auto sentinel_expr = [&]() -> Halide::Expr {
+        if (type.is_float())
+            return ascending
+                ? Halide::cast(type, std::numeric_limits<float>::infinity())
+                : Halide::cast(type, -std::numeric_limits<float>::infinity());
+        return ascending
+            ? Halide::cast(type, std::numeric_limits<int32_t>::max())
+            : Halide::cast(type, std::numeric_limits<int32_t>::min());
+    };
+
+    if (axis == 1) {
+        // Sort along x (cols) for each fixed y (row)
+        int size = cols;
+        int padded = 1;
+        while (padded < size) padded <<= 1;
+
+        Halide::Func work(name + "_work");
+        if (padded > size)
+            work(x, y) = Halide::select(x < size, input(x, y), sentinel_expr());
+        else
+            work(x, y) = input(x, y);
+        work.compute_root();
+
+        Halide::Func next, prev = work;
+        for (int pass_size = 1; pass_size < padded; pass_size <<= 1) {
+            for (int chunk_size = pass_size; chunk_size > 0; chunk_size >>= 1) {
+                next = Halide::Func(name + "_px");
+                Halide::Expr cs   = (x / (2 * chunk_size)) * (2 * chunk_size);
+                Halide::Expr ce   = (x / (2 * chunk_size) + 1) * (2 * chunk_size);
+                Halide::Expr cm   = cs + chunk_size;
+                Halide::Expr partner;
+                if (pass_size == chunk_size && pass_size > 1)
+                    partner = Halide::clamp(2 * cm - x - 1, cs, ce - 1);
+                else
+                    partner = cs + (x - cs + chunk_size) % (2 * chunk_size);
+                Halide::Expr av = prev(x, y), bv = prev(partner, y);
+                if (ascending)
+                    next(x, y) = Halide::select(x < cm, Halide::min(av, bv), Halide::max(av, bv));
+                else
+                    next(x, y) = Halide::select(x < cm, Halide::max(av, bv), Halide::min(av, bv));
+                next.compute_root();
+                prev = next;
+            }
+        }
+        Halide::Func result(name);
+        result(x, y) = prev(x, y);
+        return result;
+
+    } else {
+        // axis == 0: sort along y (rows) for each fixed x (col)
+        int size = rows;
+        int padded = 1;
+        while (padded < size) padded <<= 1;
+
+        Halide::Func work(name + "_work");
+        if (padded > size)
+            work(x, y) = Halide::select(y < size, input(x, y), sentinel_expr());
+        else
+            work(x, y) = input(x, y);
+        work.compute_root();
+
+        Halide::Func next, prev = work;
+        for (int pass_size = 1; pass_size < padded; pass_size <<= 1) {
+            for (int chunk_size = pass_size; chunk_size > 0; chunk_size >>= 1) {
+                next = Halide::Func(name + "_py");
+                Halide::Expr cs   = (y / (2 * chunk_size)) * (2 * chunk_size);
+                Halide::Expr ce   = (y / (2 * chunk_size) + 1) * (2 * chunk_size);
+                Halide::Expr cm   = cs + chunk_size;
+                Halide::Expr partner;
+                if (pass_size == chunk_size && pass_size > 1)
+                    partner = Halide::clamp(2 * cm - y - 1, cs, ce - 1);
+                else
+                    partner = cs + (y - cs + chunk_size) % (2 * chunk_size);
+                Halide::Expr av = prev(x, y), bv = prev(x, partner);
+                if (ascending)
+                    next(x, y) = Halide::select(y < cm, Halide::min(av, bv), Halide::max(av, bv));
+                else
+                    next(x, y) = Halide::select(y < cm, Halide::max(av, bv), Halide::min(av, bv));
+                next.compute_root();
+                prev = next;
+            }
+        }
+        Halide::Func result(name);
+        result(x, y) = prev(x, y);
+        return result;
+    }
+}
+
+/// @brief Get argsort indices for a 2D array along an axis
+/// @param input  2D Func f(col, row)
+/// @param rows   Number of rows
+/// @param cols   Number of cols
+/// @param axis   1 = argsort cols in each row, 0 = argsort rows in each col
+/// @return Int32 Func with indices (same shape as input)
+inline
+Halide::Func argsort_2d(Halide::Func input, int rows, int cols,
+    int axis = 1, bool ascending = true,
+    std::string const& name = "argsort_2d")
+{
+    Halide::Var x("x"), y("y");
+    Halide::Type type = input.types()[0];
+
+    auto sentinel_expr = [&]() -> Halide::Expr {
+        if (type.is_float())
+            return ascending
+                ? Halide::cast(type, std::numeric_limits<float>::infinity())
+                : Halide::cast(type, -std::numeric_limits<float>::infinity());
+        return ascending
+            ? Halide::cast(type, std::numeric_limits<int32_t>::max())
+            : Halide::cast(type, std::numeric_limits<int32_t>::min());
+    };
+
+    if (axis == 1) {
+        int size = cols;
+        int padded = 1;
+        while (padded < size) padded <<= 1;
+
+        Halide::Func indexed(name + "_idx");
+        if (padded > size)
+            indexed(x, y) = Halide::Tuple(
+                Halide::select(x < size, input(x, y), sentinel_expr()),
+                Halide::select(x < size, x, size + padded));
+        else
+            indexed(x, y) = Halide::Tuple(input(x, y), x);
+        indexed.compute_root();
+
+        Halide::Func next, prev = indexed;
+        for (int pass_size = 1; pass_size < padded; pass_size <<= 1) {
+            for (int chunk_size = pass_size; chunk_size > 0; chunk_size >>= 1) {
+                next = Halide::Func(name + "_px");
+                Halide::Expr cs   = (x / (2 * chunk_size)) * (2 * chunk_size);
+                Halide::Expr ce   = (x / (2 * chunk_size) + 1) * (2 * chunk_size);
+                Halide::Expr cm   = cs + chunk_size;
+                Halide::Expr partner;
+                if (pass_size == chunk_size && pass_size > 1)
+                    partner = Halide::clamp(2 * cm - x - 1, cs, ce - 1);
+                else
+                    partner = cs + (x - cs + chunk_size) % (2 * chunk_size);
+                Halide::Expr mv = prev(x, y)[0], mi = prev(x, y)[1];
+                Halide::Expr pv = prev(partner, y)[0], pi = prev(partner, y)[1];
+                Halide::Expr want_me = ascending
+                    ? Halide::select(x < cm, mv <= pv, mv > pv)
+                    : Halide::select(x < cm, mv >= pv, mv < pv);
+                next(x, y) = Halide::select(want_me,
+                    Halide::Tuple(mv, mi), Halide::Tuple(pv, pi));
+                next.compute_root();
+                prev = next;
+            }
+        }
+        Halide::Func result(name);
+        result(x, y) = prev(x, y)[1];
+        return result;
+
+    } else {
+        int size = rows;
+        int padded = 1;
+        while (padded < size) padded <<= 1;
+
+        Halide::Func indexed(name + "_idx");
+        if (padded > size)
+            indexed(x, y) = Halide::Tuple(
+                Halide::select(y < size, input(x, y), sentinel_expr()),
+                Halide::select(y < size, y, size + padded));
+        else
+            indexed(x, y) = Halide::Tuple(input(x, y), y);
+        indexed.compute_root();
+
+        Halide::Func next, prev = indexed;
+        for (int pass_size = 1; pass_size < padded; pass_size <<= 1) {
+            for (int chunk_size = pass_size; chunk_size > 0; chunk_size >>= 1) {
+                next = Halide::Func(name + "_py");
+                Halide::Expr cs   = (y / (2 * chunk_size)) * (2 * chunk_size);
+                Halide::Expr ce   = (y / (2 * chunk_size) + 1) * (2 * chunk_size);
+                Halide::Expr cm   = cs + chunk_size;
+                Halide::Expr partner;
+                if (pass_size == chunk_size && pass_size > 1)
+                    partner = Halide::clamp(2 * cm - y - 1, cs, ce - 1);
+                else
+                    partner = cs + (y - cs + chunk_size) % (2 * chunk_size);
+                Halide::Expr mv = prev(x, y)[0], mi = prev(x, y)[1];
+                Halide::Expr pv = prev(x, partner)[0], pi = prev(x, partner)[1];
+                Halide::Expr want_me = ascending
+                    ? Halide::select(y < cm, mv <= pv, mv > pv)
+                    : Halide::select(y < cm, mv >= pv, mv < pv);
+                next(x, y) = Halide::select(want_me,
+                    Halide::Tuple(mv, mi), Halide::Tuple(pv, pi));
+                next.compute_root();
+                prev = next;
+            }
+        }
+        Halide::Func result(name);
+        result(x, y) = prev(x, y)[1];
+        return result;
+    }
 }
 
 NS_NUM_HALIDE_END

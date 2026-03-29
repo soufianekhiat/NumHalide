@@ -62,20 +62,19 @@ inline Halide::Func reduce_sum(
     }
 
     // Build input arguments
-    // Map output vars and rdom vars to input dimensions
+    // Map output vars and rdom vars to input dimensions.
+    // Each reduced axis at position j in norm_axes maps to rdom[j] (same sorted order).
     std::vector<Halide::Expr> in_args;
-    int out_idx = 0;  // Index into out_vars (Halide order: inner first)
-    int rdom_idx = 0; // Index into rdom
+    int out_idx = 0;
 
-    // Iterate input dims from inner to outer (Halide convention)
     for (int i = in_shape.rank - 1; i >= 0; --i) {
-        bool is_reduced = std::find(norm_axes.begin(), norm_axes.end(), i) != norm_axes.end();
-        if (is_reduced) {
-            in_args.push_back(rdom[rdom_idx]);
-            rdom_idx++;
-            if (keepdims) {
-                out_idx++; // Skip the kept dimension (it's size 1)
-            }
+        int rdom_pos = -1;
+        for (int j = 0; j < (int)norm_axes.size(); ++j) {
+            if (norm_axes[j] == i) { rdom_pos = j; break; }
+        }
+        if (rdom_pos >= 0) {
+            in_args.push_back(rdom[rdom_pos]);
+            if (keepdims) out_idx++;
         } else {
             in_args.push_back(out_vars[out_idx]);
             out_idx++;
@@ -83,11 +82,18 @@ inline Halide::Func reduce_sum(
     }
 
     // Define the reduction
-    Halide::Func ret(name);
-    ret(out_vars) = Halide::cast(f.types()[0], 0);
-    ret(out_vars) += f(in_args);
+    Halide::Func raw(out_shape.rank == 0 ? name + "_raw" : name);
+    raw(out_vars) = Halide::cast(f.types()[0], 0);
+    raw(out_vars) += f(in_args);
 
-    return ret;
+    if (out_shape.rank == 0) {
+        // Full reduction: wrap scalar in 1D for consistent buffer handling
+        Halide::Func ret(name);
+        Halide::Var _x;
+        ret(_x) = raw();
+        return ret;
+    }
+    return raw;
 }
 
 /// @brief Reduce by product over specified axes
@@ -131,13 +137,14 @@ inline Halide::Func reduce_prod(
 
     std::vector<Halide::Expr> in_args;
     int out_idx = 0;
-    int rdom_idx = 0;
 
     for (int i = in_shape.rank - 1; i >= 0; --i) {
-        bool is_reduced = std::find(norm_axes.begin(), norm_axes.end(), i) != norm_axes.end();
-        if (is_reduced) {
-            in_args.push_back(rdom[rdom_idx]);
-            rdom_idx++;
+        int rdom_pos = -1;
+        for (int j = 0; j < (int)norm_axes.size(); ++j) {
+            if (norm_axes[j] == i) { rdom_pos = j; break; }
+        }
+        if (rdom_pos >= 0) {
+            in_args.push_back(rdom[rdom_pos]);
             if (keepdims) out_idx++;
         } else {
             in_args.push_back(out_vars[out_idx]);
@@ -145,11 +152,15 @@ inline Halide::Func reduce_prod(
         }
     }
 
-    Halide::Func ret(name);
-    ret(out_vars) = Halide::cast(f.types()[0], 1);
-    ret(out_vars) *= f(in_args);
+    Halide::Func raw(out_shape.rank == 0 ? name + "_raw" : name);
+    raw(out_vars) = Halide::cast(f.types()[0], 1);
+    raw(out_vars) *= f(in_args);
 
-    return ret;
+    if (out_shape.rank == 0) {
+        Halide::Func ret(name); Halide::Var _x;
+        ret(_x) = raw(); return ret;
+    }
+    return raw;
 }
 
 /// @brief Reduce by minimum over specified axes
@@ -193,13 +204,14 @@ inline Halide::Func reduce_min(
 
     std::vector<Halide::Expr> in_args;
     int out_idx = 0;
-    int rdom_idx = 0;
 
     for (int i = in_shape.rank - 1; i >= 0; --i) {
-        bool is_reduced = std::find(norm_axes.begin(), norm_axes.end(), i) != norm_axes.end();
-        if (is_reduced) {
-            in_args.push_back(rdom[rdom_idx]);
-            rdom_idx++;
+        int rdom_pos = -1;
+        for (int j = 0; j < (int)norm_axes.size(); ++j) {
+            if (norm_axes[j] == i) { rdom_pos = j; break; }
+        }
+        if (rdom_pos >= 0) {
+            in_args.push_back(rdom[rdom_pos]);
             if (keepdims) out_idx++;
         } else {
             in_args.push_back(out_vars[out_idx]);
@@ -207,12 +219,16 @@ inline Halide::Func reduce_min(
         }
     }
 
-    Halide::Func ret(name);
+    Halide::Func raw(out_shape.rank == 0 ? name + "_raw" : name);
     Halide::Type t = f.types()[0];
-    ret(out_vars) = t.max();
-    ret(out_vars) = Halide::min(ret(out_vars), f(in_args));
+    raw(out_vars) = t.max();
+    raw(out_vars) = Halide::min(raw(out_vars), f(in_args));
 
-    return ret;
+    if (out_shape.rank == 0) {
+        Halide::Func ret(name); Halide::Var _x;
+        ret(_x) = raw(); return ret;
+    }
+    return raw;
 }
 
 /// @brief Reduce by maximum over specified axes
@@ -256,13 +272,14 @@ inline Halide::Func reduce_max(
 
     std::vector<Halide::Expr> in_args;
     int out_idx = 0;
-    int rdom_idx = 0;
 
     for (int i = in_shape.rank - 1; i >= 0; --i) {
-        bool is_reduced = std::find(norm_axes.begin(), norm_axes.end(), i) != norm_axes.end();
-        if (is_reduced) {
-            in_args.push_back(rdom[rdom_idx]);
-            rdom_idx++;
+        int rdom_pos = -1;
+        for (int j = 0; j < (int)norm_axes.size(); ++j) {
+            if (norm_axes[j] == i) { rdom_pos = j; break; }
+        }
+        if (rdom_pos >= 0) {
+            in_args.push_back(rdom[rdom_pos]);
             if (keepdims) out_idx++;
         } else {
             in_args.push_back(out_vars[out_idx]);
@@ -270,12 +287,16 @@ inline Halide::Func reduce_max(
         }
     }
 
-    Halide::Func ret(name);
+    Halide::Func raw(out_shape.rank == 0 ? name + "_raw" : name);
     Halide::Type t = f.types()[0];
-    ret(out_vars) = t.min();
-    ret(out_vars) = Halide::max(ret(out_vars), f(in_args));
+    raw(out_vars) = t.min();
+    raw(out_vars) = Halide::max(raw(out_vars), f(in_args));
 
-    return ret;
+    if (out_shape.rank == 0) {
+        Halide::Func ret(name); Halide::Var _x;
+        ret(_x) = raw(); return ret;
+    }
+    return raw;
 }
 
 /// @brief Reduce by mean over specified axes
@@ -315,13 +336,22 @@ inline Halide::Func reduce_mean(
 
     // Divide by count
     shape_t out_shape = infer_reduce(in_shape, norm_axes, keepdims);
+    Halide::Type t = f.types()[0];
+
+    if (out_shape.rank == 0) {
+        // sum_f is now 1D (scalar wrapped in 1D); return 1D mean
+        Halide::Func ret(name);
+        Halide::Var _x;
+        ret(_x) = sum_f(_x) / Halide::cast(t, count);
+        return ret;
+    }
+
     std::vector<Halide::Var> out_vars;
     for (int i = 0; i < out_shape.rank; ++i) {
         out_vars.push_back(Halide::Var());
     }
 
     Halide::Func ret(name);
-    Halide::Type t = f.types()[0];
     ret(out_vars) = sum_f(out_vars) / Halide::cast(t, count);
 
     return ret;
