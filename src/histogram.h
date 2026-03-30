@@ -27,8 +27,8 @@ Halide::Func histogram_1d(Halide::Func f, const shape_t& shape, int bins,
                            Halide::Expr range_min = 0.0f, Halide::Expr range_max = 1.0f,
                            std::string const& name = "histogram")
 {
-	nh_require(nullptr, bins > 0, "histogram requires positive bin count");
-	nh_require(nullptr, shape.rank >= 1 && shape.rank <= 2, "histogram supports 1D or 2D input");
+	nh_require(bins > 0, "histogram requires positive bin count");
+	nh_require(shape.rank >= 1 && shape.rank <= 2, "histogram supports 1D or 2D input");
 
 	Halide::Func ret(name);
 	Halide::Var bin;

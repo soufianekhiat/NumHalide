@@ -86,7 +86,7 @@ inline
 Halide::Func trapz_1d(Halide::Func f, int n, float dx = 1.0f,
     std::string const& name = "trapz")
 {
-    nh_require(nullptr, n >= 2, "trapz_1d: need at least 2 points");
+    nh_require(n >= 2, "trapz_1d: need at least 2 points");
     Halide::Func ret(name);
     Halide::RDom r(0, n - 1, "r_trapz");
     ret() = 0.0f;
@@ -102,7 +102,7 @@ inline
 Halide::Func trapz_1d(Halide::Func f, Halide::Func x, int n,
     std::string const& name = "trapz_xu")
 {
-    nh_require(nullptr, n >= 2, "trapz_1d: need at least 2 points");
+    nh_require(n >= 2, "trapz_1d: need at least 2 points");
     Halide::Func ret(name);
     Halide::RDom r(0, n - 1, "r_trapz_xu");
     ret() = 0.0f;
@@ -167,7 +167,7 @@ Halide::Func correlate1d(Halide::Func a, Halide::Func v, int na, int nv,
         pad = (nv - 1) / 2;
         out_size = na;
     } else { // "valid"
-        nh_require(nullptr, na >= nv, "correlate1d valid mode: na must be >= nv");
+        nh_require(na >= nv, "correlate1d valid mode: na must be >= nv");
         pad = 0;
         out_size = na - nv + 1;
     }

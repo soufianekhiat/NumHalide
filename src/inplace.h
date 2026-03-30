@@ -96,7 +96,7 @@ inline void scan_minmax(const Halide::Runtime::Buffer<float>& src,
 inline void inplace_threshold(Halide::Runtime::Buffer<float>& src, float thresh,
                                const std::string& /*name*/ = "inplace_threshold")
 {
-    nh_require(nullptr, src.dimensions() >= 1 && src.dimensions() <= 3,
+    nh_require(src.dimensions() >= 1 && src.dimensions() <= 3,
                "inplace_threshold: unsupported ndim=%d", src.dimensions());
     inplace_detail::apply_nd(src, [thresh](float v) { return std::max(v, thresh); });
 }
@@ -105,7 +105,7 @@ inline void inplace_threshold(Halide::Runtime::Buffer<float>& src, float thresh,
 inline void inplace_clamp(Halide::Runtime::Buffer<float>& src, float lo, float hi,
                           const std::string& /*name*/ = "inplace_clamp")
 {
-    nh_require(nullptr, src.dimensions() >= 1 && src.dimensions() <= 3,
+    nh_require(src.dimensions() >= 1 && src.dimensions() <= 3,
                "inplace_clamp: unsupported ndim=%d", src.dimensions());
     inplace_detail::apply_nd(src, [lo, hi](float v) {
         return v < lo ? lo : (v > hi ? hi : v);
@@ -116,7 +116,7 @@ inline void inplace_clamp(Halide::Runtime::Buffer<float>& src, float lo, float h
 inline void inplace_scale(Halide::Runtime::Buffer<float>& src, float factor,
                           const std::string& /*name*/ = "inplace_scale")
 {
-    nh_require(nullptr, src.dimensions() >= 1 && src.dimensions() <= 3,
+    nh_require(src.dimensions() >= 1 && src.dimensions() <= 3,
                "inplace_scale: unsupported ndim=%d", src.dimensions());
     inplace_detail::apply_nd(src, [factor](float v) { return v * factor; });
 }
@@ -125,7 +125,7 @@ inline void inplace_scale(Halide::Runtime::Buffer<float>& src, float factor,
 inline void inplace_add_scalar(Halide::Runtime::Buffer<float>& src, float value,
                                const std::string& /*name*/ = "inplace_add_scalar")
 {
-    nh_require(nullptr, src.dimensions() >= 1 && src.dimensions() <= 3,
+    nh_require(src.dimensions() >= 1 && src.dimensions() <= 3,
                "inplace_add_scalar: unsupported ndim=%d", src.dimensions());
     inplace_detail::apply_nd(src, [value](float v) { return v + value; });
 }
@@ -134,7 +134,7 @@ inline void inplace_add_scalar(Halide::Runtime::Buffer<float>& src, float value,
 inline void inplace_exp(Halide::Runtime::Buffer<float>& src,
                         const std::string& /*name*/ = "inplace_exp")
 {
-    nh_require(nullptr, src.dimensions() >= 1 && src.dimensions() <= 3,
+    nh_require(src.dimensions() >= 1 && src.dimensions() <= 3,
                "inplace_exp: unsupported ndim=%d", src.dimensions());
     inplace_detail::apply_nd(src, [](float v) { return std::exp(v); });
 }
@@ -143,7 +143,7 @@ inline void inplace_exp(Halide::Runtime::Buffer<float>& src,
 inline void inplace_sqrt(Halide::Runtime::Buffer<float>& src,
                          const std::string& /*name*/ = "inplace_sqrt")
 {
-    nh_require(nullptr, src.dimensions() >= 1 && src.dimensions() <= 3,
+    nh_require(src.dimensions() >= 1 && src.dimensions() <= 3,
                "inplace_sqrt: unsupported ndim=%d", src.dimensions());
     inplace_detail::apply_nd(src, [](float v) { return std::sqrt(std::max(v, 0.0f)); });
 }
@@ -152,7 +152,7 @@ inline void inplace_sqrt(Halide::Runtime::Buffer<float>& src,
 inline void inplace_gamma(Halide::Runtime::Buffer<float>& src, float gamma,
                           const std::string& /*name*/ = "inplace_gamma")
 {
-    nh_require(nullptr, src.dimensions() >= 1 && src.dimensions() <= 3,
+    nh_require(src.dimensions() >= 1 && src.dimensions() <= 3,
                "inplace_gamma: unsupported ndim=%d", src.dimensions());
     inplace_detail::apply_nd(src, [gamma](float v) {
         float clamped = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
@@ -165,7 +165,7 @@ inline void inplace_gamma(Halide::Runtime::Buffer<float>& src, float gamma,
 inline void inplace_normalize(Halide::Runtime::Buffer<float>& src,
                               const std::string& name = "inplace_normalize")
 {
-    nh_require(nullptr, src.dimensions() >= 1 && src.dimensions() <= 3,
+    nh_require(src.dimensions() >= 1 && src.dimensions() <= 3,
                "inplace_normalize: unsupported ndim=%d", src.dimensions());
     float mn, mx;
     inplace_detail::scan_minmax(src, mn, mx);

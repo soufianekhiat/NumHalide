@@ -18,7 +18,7 @@ NS_NUM_HALIDE_BEGIN
 inline Halide::Runtime::Buffer<float> view_transpose(
     const Halide::Runtime::Buffer<float>& src)
 {
-    nh_require(nullptr, src.dimensions() == 2,
+    nh_require(src.dimensions() == 2,
                "view_transpose requires 2D buffer, got %d dims", src.dimensions());
 
     halide_dimension_t dims[2];
@@ -46,9 +46,9 @@ inline Halide::Runtime::Buffer<float> view_slice(
     const Halide::Runtime::Buffer<float>& src, int axis, int start, int stop)
 {
     int ndim = src.dimensions();
-    nh_require(nullptr, axis >= 0 && axis < ndim,
+    nh_require(axis >= 0 && axis < ndim,
                "view_slice: axis %d out of [0, %d)", axis, ndim);
-    nh_require(nullptr, start >= 0 && stop <= src.dim(axis).extent() && start < stop,
+    nh_require(start >= 0 && stop <= src.dim(axis).extent() && start < stop,
                "view_slice: [%d, %d) invalid for axis %d extent %d",
                start, stop, axis, src.dim(axis).extent());
 
@@ -85,7 +85,7 @@ inline Halide::Runtime::Buffer<float> view_reshape(
     int new_total = 1;
     for (int e : new_extents) new_total *= e;
 
-    nh_require(nullptr, old_total == new_total,
+    nh_require(old_total == new_total,
                "view_reshape: element count mismatch %d vs %d", old_total, new_total);
 
     int ndim = (int)new_extents.size();
@@ -100,6 +100,54 @@ inline Halide::Runtime::Buffer<float> view_reshape(
     }
 
     return Halide::Runtime::Buffer<float>(src.data(), ndim, dims.data());
+}
+
+// =============================================================================
+// Bridge: Runtime::Buffer -> Func
+// =============================================================================
+
+/// @brief Wrap a Halide::Runtime::Buffer<float> in a Func.
+/// The buffer must outlive all JIT compilations that use the returned Func.
+/// @param src  Source buffer (any dimensionality 1-3D)
+/// @param name Func name
+/// @return Func that reads from src; handles 1D, 2D, and 3D buffers.
+inline Halide::Func func_from_buffer(const Halide::Runtime::Buffer<float>& src,
+                                      const std::string& name = "buf_func")
+{
+    int ndim = src.dimensions();
+    nh_require(ndim >= 1 && ndim <= 3,
+        "func_from_buffer: only 1-3D buffers supported, got %d dims", ndim);
+
+    // Build a Halide::Buffer (non-Runtime) sharing the same host pointer
+    // so that Halide can use it as an image argument.
+    Halide::Func f(name);
+    if (ndim == 1) {
+        int n = src.dim(0).extent();
+        Halide::Buffer<float> hbuf(const_cast<float*>(src.data()), n);
+        Halide::Var x;
+        f(x) = hbuf(x);
+    } else if (ndim == 2) {
+        int w = src.dim(0).extent(), h = src.dim(1).extent();
+        Halide::Buffer<float> hbuf(const_cast<float*>(src.data()), w, h);
+        Halide::Var x, y;
+        f(x, y) = hbuf(x, y);
+    } else {
+        int w = src.dim(0).extent(), h = src.dim(1).extent(), d = src.dim(2).extent();
+        Halide::Buffer<float> hbuf(const_cast<float*>(src.data()), w, h, d);
+        Halide::Var x, y, z;
+        f(x, y, z) = hbuf(x, y, z);
+    }
+    return f;
+}
+
+/// @brief Compute the shape_t for a Runtime::Buffer.
+inline shape_t shape_from_buffer(const Halide::Runtime::Buffer<float>& src)
+{
+    shape_t s;
+    s.rank = src.dimensions();
+    for (int i = 0; i < s.rank; ++i)
+        s.extents[i] = src.dim(i).extent();
+    return s;
 }
 
 NS_NUM_HALIDE_END

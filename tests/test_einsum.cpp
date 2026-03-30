@@ -481,3 +481,214 @@ TEST(EinsumTest, MatMul_3x3_matches_matmul) {
         for (int c = 0; c < N; ++c)
             EXPECT_NEAR(out_e(c, r), data_B[r * N + c], 1e-3f);
 }
+
+// =============================================================================
+// EinsumExtended — additional coverage: 3D contractions, edge shapes, errors
+// =============================================================================
+
+// Test E1: Trace3x3_matches_sum — einsum1("ii->", A{3,3}) matches manual diagonal sum
+TEST(EinsumExtended, Trace3x3_matches_sum)
+{
+    const int N = 3;
+    // A[i,j] = i*N + j + 1  → diag = A[0,0]+A[1,1]+A[2,2] = 1 + 5 + 9 = 15
+    std::vector<float> data;
+    for (int i = 0; i < N; ++i)
+        for (int j = 0; j < N; ++j)
+            data.push_back(static_cast<float>(i * N + j + 1));
+
+    float manual_trace = 0.0f;
+    for (int i = 0; i < N; ++i)
+        manual_trace += data[i * N + i];
+
+    Halide::Func A = make_buf_2d(data, N, N, "trace3_A");
+    Halide::Func result = einsum("ii->", A, {N, N}, "trace3");
+
+    Halide::Runtime::Buffer<float> out(1);
+    result.realize(out);
+
+    EXPECT_NEAR(out(0), manual_trace, 1e-3f);
+    EXPECT_NEAR(out(0), 15.0f,        1e-3f);
+}
+
+// Test E2: ColSum_4x3 — einsum1("ij->j", A{4,3}) computes column sums
+TEST(EinsumExtended, ColSum_4x3)
+{
+    const int rows = 4, cols = 3;
+    // A[i,j] = i*cols + j + 1
+    // col sums: col0=1+4+7+10=22, col1=2+5+8+11=26, col2=3+6+9+12=30
+    std::vector<float> data;
+    for (int i = 0; i < rows; ++i)
+        for (int j = 0; j < cols; ++j)
+            data.push_back(static_cast<float>(i * cols + j + 1));
+
+    Halide::Func A = make_buf_2d(data, rows, cols, "cs4x3_A");
+    // shape {rows, cols} = {4, 3}; subscript "ij->j": i has extent rows, j has extent cols
+    Halide::Func result = einsum("ij->j", A, {rows, cols}, "colsum");
+
+    shape_t sr = infer_einsum1("ij->j", {rows, cols});
+    ASSERT_EQ(sr.rank, 1);
+    ASSERT_EQ(sr.extents[0], cols);
+
+    // Halide buffer has extent cols (j extent)
+    Halide::Runtime::Buffer<float> out(cols);
+    result.realize(out);
+
+    // out(j) = sum_i A[i,j]
+    for (int j = 0; j < cols; ++j) {
+        float expected = 0.0f;
+        for (int i = 0; i < rows; ++i)
+            expected += data[i * cols + j];
+        EXPECT_NEAR(out(j), expected, 1e-3f);
+    }
+}
+
+// Test E3: Contraction_3D_ijk_jkl_il — einsum("ijk,jkl->il", A{2,3,4}, B{3,4,2})
+// A has axes i=2, j=3, k=4; B has axes j=3, k=4, l=2
+// Output "il": i=2, l=2  → Halide buffer (2, 2)
+// result[i,l] = sum_{j,k} A[i,j,k] * B[j,k,l]
+TEST(EinsumExtended, Contraction_3D_ijk_jkl_il)
+{
+    const int I = 2, J = 3, K = 4, L = 2;
+
+    // A[i,j,k] = i*J*K + j*K + k + 1
+    std::vector<float> data_A;
+    for (int i = 0; i < I; ++i)
+        for (int j = 0; j < J; ++j)
+            for (int k = 0; k < K; ++k)
+                data_A.push_back(static_cast<float>(i * J * K + j * K + k + 1));
+
+    // B[j,k,l] = (j*K*L + k*L + l + 1) * 0.1f
+    std::vector<float> data_B;
+    for (int j = 0; j < J; ++j)
+        for (int k = 0; k < K; ++k)
+            for (int l = 0; l < L; ++l)
+                data_B.push_back(static_cast<float>(j * K * L + k * L + l + 1) * 0.1f);
+
+    // shape_A {I,J,K} = {2,3,4}; make_buf_3d(data, D=I, rows=J, cols=K)
+    Halide::Func A = make_buf_3d(data_A, I, J, K, "c3d_A");
+    // shape_B {J,K,L} = {3,4,2}; make_buf_3d(data, D=J, rows=K, cols=L)
+    Halide::Func B = make_buf_3d(data_B, J, K, L, "c3d_B");
+
+    // shape_t for A: extents in subscript order "ijk" → {I, J, K}
+    // shape_t for B: extents in subscript order "jkl" → {J, K, L}
+    Halide::Func result = einsum("ijk,jkl->il", A, {I, J, K}, B, {J, K, L}, "c3d_res");
+
+    shape_t sr = infer_einsum("ijk,jkl->il", {I, J, K}, {J, K, L});
+    ASSERT_EQ(sr.rank, 2);
+    ASSERT_EQ(sr.extents[0], I);
+    ASSERT_EQ(sr.extents[1], L);
+
+    // Halide buffer: (L, I) since innermost = last output letter 'l' → extent L
+    Halide::Runtime::Buffer<float> out(L, I);
+    result.realize(out);
+
+    // Verify result[i,l] = sum_{j,k} A[i,j,k] * B[j,k,l]
+    for (int i = 0; i < I; ++i) {
+        for (int l = 0; l < L; ++l) {
+            float expected = 0.0f;
+            for (int j = 0; j < J; ++j)
+                for (int k = 0; k < K; ++k) {
+                    float a_val = data_A[i * J * K + j * K + k];
+                    float b_val = data_B[j * K * L + k * L + l];
+                    expected += a_val * b_val;
+                }
+            // out(l, i) since Halide buffer innermost dim = l
+            EXPECT_NEAR(out(l, i), expected, 0.1f)
+                << "Mismatch at i=" << i << " l=" << l;
+        }
+    }
+}
+
+// Test E4: Hadamard_NonSquare — einsum("ij,ij->ij", A{3,5}, B{3,5})
+TEST(EinsumExtended, Hadamard_NonSquare)
+{
+    const int rows = 3, cols = 5;
+    std::vector<float> data_A, data_B;
+    for (int k = 0; k < rows * cols; ++k) {
+        data_A.push_back(static_cast<float>(k + 1));
+        data_B.push_back(static_cast<float>(k + 2));
+    }
+
+    Halide::Func A = make_buf_2d(data_A, rows, cols, "had_A");
+    Halide::Func B = make_buf_2d(data_B, rows, cols, "had_B");
+
+    Halide::Func result = einsum("ij,ij->ij", A, {rows, cols}, B, {rows, cols}, "had_res");
+
+    shape_t sr = infer_einsum("ij,ij->ij", {rows, cols}, {rows, cols});
+    ASSERT_EQ(sr.rank, 2);
+    ASSERT_EQ(sr.extents[0], rows);
+    ASSERT_EQ(sr.extents[1], cols);
+
+    // Halide buffer (cols, rows)
+    Halide::Runtime::Buffer<float> out(cols, rows);
+    result.realize(out);
+
+    for (int i = 0; i < rows; ++i)
+        for (int j = 0; j < cols; ++j)
+            EXPECT_NEAR(out(j, i), data_A[i * cols + j] * data_B[i * cols + j], 1e-3f);
+}
+
+// Test E5: InnerProduct_Vector8 — einsum("i,i->", a{8}, b{8}) matches dot product
+TEST(EinsumExtended, InnerProduct_Vector8)
+{
+    const int N = 8;
+    std::vector<float> data_a, data_b;
+    float expected = 0.0f;
+    for (int i = 0; i < N; ++i) {
+        float a = static_cast<float>(i + 1);
+        float b = static_cast<float>(N - i);
+        data_a.push_back(a);
+        data_b.push_back(b);
+        expected += a * b;
+    }
+
+    Halide::Func fa = make_buf_1d(data_a, N, "ip8_a");
+    Halide::Func fb = make_buf_1d(data_b, N, "ip8_b");
+
+    Halide::Func result = einsum("i,i->", fa, {N}, fb, {N}, "ip8_res");
+
+    Halide::Runtime::Buffer<float> out(1);
+    result.realize(out);
+
+    EXPECT_NEAR(out(0), expected, 1e-3f);
+}
+
+// Test E6: BatchedTrace — einsum1("bii->b", A{3,3,3}) computes trace per batch element
+// A[b,i,i] is the diagonal element for batch b.
+// Data layout (outermost b, then i-row, then i-col):
+//   A[b][r][c] = b*9 + r*3 + c + 1
+// Trace[b] = A[b,0,0] + A[b,1,1] + A[b,2,2] = (b*9+1) + (b*9+5) + (b*9+9)
+//           = 3*b*9 + 15
+TEST(EinsumExtended, BatchedTrace)
+{
+    const int B = 3, N = 3;
+
+    // A[b,i,j] stored as (b outermost, i next, j innermost)
+    std::vector<float> data;
+    for (int b = 0; b < B; ++b)
+        for (int i = 0; i < N; ++i)
+            for (int j = 0; j < N; ++j)
+                data.push_back(static_cast<float>(b * N * N + i * N + j + 1));
+
+    // make_buf_3d(data, D=B, rows=N, cols=N) → f(x=j, y=i, z=b)
+    Halide::Func A = make_buf_3d(data, B, N, N, "btrace_A");
+
+    // subscript "bii->b": shape {B, N, N} in subscript order b,i,i
+    // sub[0]='b'→extent B, sub[1]='i'→extent N, sub[2]='i'→extent N
+    Halide::Func result = einsum("bii->b", A, {B, N, N}, "btrace");
+
+    shape_t sr = infer_einsum1("bii->b", {B, N, N});
+    ASSERT_EQ(sr.rank, 1);
+    ASSERT_EQ(sr.extents[0], B);
+
+    Halide::Runtime::Buffer<float> out(B);
+    result.realize(out);
+
+    // out(b) = trace of slice b = sum_i A[b,i,i]
+    for (int b = 0; b < B; ++b) {
+        float expected = 0.0f;
+        for (int i = 0; i < N; ++i)
+            expected += data[b * N * N + i * N + i];
+        EXPECT_NEAR(out(b), expected, 1e-3f);
+    }
+}

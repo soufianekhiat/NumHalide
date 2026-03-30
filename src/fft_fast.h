@@ -19,7 +19,7 @@ NS_NUM_HALIDE_BEGIN
 inline Halide::Func fft_fast(Halide::Func input, int N,
                               std::string const& name = "fft_fast")
 {
-    nh_require(nullptr, N > 0 && (N & (N-1)) == 0,
+    nh_require(N > 0 && (N & (N-1)) == 0,
                "fft_fast: N must be power of 2, got %d", N);
 
     const int log2N = (int)std::round(std::log2((double)N));
@@ -92,7 +92,7 @@ inline Halide::Func fft_fast(Halide::Func input, int N,
 inline Halide::Func ifft_fast(Halide::Func input, int N,
                                std::string const& name = "ifft_fast")
 {
-    nh_require(nullptr, N > 0 && (N & (N-1)) == 0,
+    nh_require(N > 0 && (N & (N-1)) == 0,
                "ifft_fast: N must be power of 2, got %d", N);
 
     Halide::Var k("k");
@@ -111,9 +111,9 @@ inline Halide::Func ifft_fast(Halide::Func input, int N,
 inline Halide::Func fft2d_fast(Halide::Func input, int rows, int cols,
                                 std::string const& name = "fft2d_fast")
 {
-    nh_require(nullptr, (rows & (rows-1)) == 0,
+    nh_require((rows & (rows-1)) == 0,
                "fft2d_fast: rows must be power of 2, got %d", rows);
-    nh_require(nullptr, (cols & (cols-1)) == 0,
+    nh_require((cols & (cols-1)) == 0,
                "fft2d_fast: cols must be power of 2, got %d", cols);
 
     const int logC = (int)std::round(std::log2((double)cols));

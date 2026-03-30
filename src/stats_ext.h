@@ -33,10 +33,10 @@ namespace stats {
 inline
 Halide::Func median(Halide::Func f, const shape_t& shape, std::string const& name = "median")
 {
-	nh_require(nullptr, shape.rank == 1, "median currently supports 1D arrays only");
+	nh_require(shape.rank == 1, "median currently supports 1D arrays only");
 	int n = shape.extents[0];
-	nh_require(nullptr, n > 0, "median: array must have at least 1 element");
-	nh_require(nullptr, (n & (n - 1)) == 0,
+	nh_require(n > 0, "median: array must have at least 1 element");
+	nh_require((n & (n - 1)) == 0,
 		"median: size must be a power of 2 for bitonic sort, got %d", n);
 
 	Halide::Func sorted = bitonic_sort(f, n, name + "_sorted");
@@ -166,7 +166,7 @@ inline
 Halide::Func average(Halide::Func f, Halide::Func weights, const shape_t& shape,
                      std::string const& name = "average")
 {
-	nh_require(nullptr, shape.rank == 1, "average currently supports 1D arrays only");
+	nh_require(shape.rank == 1, "average currently supports 1D arrays only");
 	int n = shape.extents[0];
 
 	Halide::Var x;
@@ -213,8 +213,8 @@ Halide::Func histogram(Halide::Func f, const shape_t& shape,
                        int n_bins, Halide::Expr range_min, Halide::Expr range_max,
                        std::string const& name = "histogram")
 {
-	nh_require(nullptr, shape.rank == 1, "histogram currently supports 1D arrays only");
-	nh_require(nullptr, n_bins > 0, "histogram: n_bins must be > 0");
+	nh_require(shape.rank == 1, "histogram currently supports 1D arrays only");
+	nh_require(n_bins > 0, "histogram: n_bins must be > 0");
 	int n = shape.extents[0];
 
 	Halide::Func ret(name);
@@ -263,8 +263,8 @@ Halide::Func digitize(Halide::Func f, Halide::Func bins, const shape_t& shape,
                       int n_bins, bool right = false,
                       std::string const& name = "digitize")
 {
-	nh_require(nullptr, shape.rank == 1, "digitize currently supports 1D arrays only");
-	nh_require(nullptr, n_bins > 0, "digitize: n_bins must be > 0");
+	nh_require(shape.rank == 1, "digitize currently supports 1D arrays only");
+	nh_require(n_bins > 0, "digitize: n_bins must be > 0");
 
 	Halide::Func ret(name);
 	Halide::Var x;

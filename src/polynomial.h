@@ -27,7 +27,7 @@ NS_NUM_HALIDE_BEGIN
 inline
 Halide::Func polyval(Halide::Func coeffs, int n_coeffs, Halide::Func x_func, const shape_t& shape, std::string const& name = "polyval")
 {
-	nh_require(nullptr, n_coeffs >= 1, "polyval requires at least 1 coefficient");
+	nh_require(n_coeffs >= 1, "polyval requires at least 1 coefficient");
 
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
@@ -61,7 +61,7 @@ Halide::Func polyval(Halide::Func coeffs, int n_coeffs, Halide::Func x_func, con
 inline
 Halide::Func chebyshev_t(int n, Halide::Func x_func, const shape_t& shape, std::string const& name = "chebyshev")
 {
-	nh_require(nullptr, n >= 0, "Chebyshev degree must be non-negative, got %d", n);
+	nh_require(n >= 0, "Chebyshev degree must be non-negative, got %d", n);
 
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
@@ -106,7 +106,7 @@ Halide::Func chebyshev_t(int n, Halide::Func x_func, const shape_t& shape, std::
 inline
 Halide::Func legendre_p(int n, Halide::Func x_func, const shape_t& shape, std::string const& name = "legendre")
 {
-	nh_require(nullptr, n >= 0, "Legendre degree must be non-negative, got %d", n);
+	nh_require(n >= 0, "Legendre degree must be non-negative, got %d", n);
 
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
@@ -216,7 +216,6 @@ inline
 Halide::Func polymul(Halide::Func a, int na, Halide::Func b, int nb,
     std::string const& name = "polymul")
 {
-    int nout = na + nb - 1;
     Halide::Func ret(name);
     Halide::Var i("i");
     Halide::Type type = a.types()[0];
@@ -255,7 +254,7 @@ inline
 Halide::Func polyder(Halide::Func a, int na, int m = 1,
     std::string const& name = "polyder")
 {
-    nh_require(nullptr, m >= 0, "polyder: order m must be non-negative");
+    nh_require(m >= 0, "polyder: order m must be non-negative");
 
     if (m == 0) return a;
     if (m >= na) {
@@ -302,7 +301,6 @@ inline
 Halide::Func polyint(Halide::Func a, int na, Halide::Expr k = 0.0f,
     std::string const& name = "polyint")
 {
-    int nout = na + 1;
     Halide::Func ret(name);
     Halide::Var i("i");
     Halide::Type type = a.types()[0];
@@ -337,8 +335,8 @@ std::pair<Halide::Func, Halide::Func> polydiv(
     Halide::Func b, int nb,
     std::string const& name = "polydiv")
 {
-    nh_require(nullptr, na >= nb, "polydiv: degree of dividend must be >= divisor");
-    nh_require(nullptr, nb >= 1,  "polydiv: divisor must have >= 1 coefficient");
+    nh_require(na >= nb, "polydiv: degree of dividend must be >= divisor");
+    nh_require(nb >= 1,  "polydiv: divisor must have >= 1 coefficient");
 
     int q_len = na - nb + 1; // number of quotient coefficients
     Halide::Var i("i");

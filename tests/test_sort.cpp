@@ -20,7 +20,7 @@ TEST(Sort, Argmin1D) {
            Halide::select(x == 2, 4,
            Halide::select(x == 3, 0, 2))));
 
-    auto result = argmin(f, shape, "argmin_result");
+    auto result = global_argmin(f, shape, "argmin_result");
 
     Halide::Runtime::Buffer<int32_t> out(1);
     result.realize(out);
@@ -38,7 +38,7 @@ TEST(Sort, Argmax1D) {
            Halide::select(x == 2, 4,
            Halide::select(x == 3, 0, 2))));
 
-    auto result = argmax(f, shape, "argmax_result");
+    auto result = global_argmax(f, shape, "argmax_result");
 
     Halide::Runtime::Buffer<int32_t> out(1);
     result.realize(out);
@@ -47,7 +47,7 @@ TEST(Sort, Argmax1D) {
 }
 
 TEST(Sort, Argmin2DAxis0) {
-    // 3x2 array, find argmin along rows (axis 0)
+    // 3x2 array, find global_argmin along rows (axis 0)
     // shape = {rows=3, cols=2}
     // Halide: f(x, y) where x=cols, y=rows
     // [[5, 2], [1, 4], [3, 0]]
@@ -60,7 +60,7 @@ TEST(Sort, Argmin2DAxis0) {
               Halide::select(x == 0, 3, 0)));
     f.compute_root();
 
-    // Manual argmin along rows (y dimension)
+    // Manual global_argmin along rows (y dimension)
     Halide::Func ret("argmin_axis0");
     Halide::RDom r(0, rows);
     ret(x) = 0;
@@ -77,7 +77,7 @@ TEST(Sort, Argmin2DAxis0) {
 }
 
 TEST(Sort, Argmax2DAxis1) {
-    // 2x3 array, find argmax along cols (axis 1)
+    // 2x3 array, find global_argmax along cols (axis 1)
     // shape = {rows=2, cols=3}
     // Halide: f(x, y) where x=cols, y=rows
     // [[1, 5, 2], [4, 0, 3]]
@@ -89,7 +89,7 @@ TEST(Sort, Argmax2DAxis1) {
               Halide::select(x == 0, 4, Halide::select(x == 1, 0, 3)));
     f.compute_root();
 
-    // Manual argmax along cols (x dimension)
+    // Manual global_argmax along cols (x dimension)
     Halide::Func ret("argmax_axis1");
     Halide::RDom r(0, cols);
     ret(y) = 0;

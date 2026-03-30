@@ -27,7 +27,7 @@ NS_NUM_HALIDE_BEGIN
 inline
 Halide::Func rfft(Halide::Func input, int N, std::string const& name = "rfft")
 {
-	nh_require(nullptr, (N & (N - 1)) == 0, "rfft requires power of 2 size, got %d", N);
+	nh_require((N & (N - 1)) == 0, "rfft requires power of 2 size, got %d", N);
 
 	// Convert real input to complex (imaginary = 0)
 	Halide::Func complex_in("rfft_cin");
@@ -56,7 +56,7 @@ Halide::Func rfft(Halide::Func input, int N, std::string const& name = "rfft")
 inline
 Halide::Func irfft(Halide::Func input, int N, std::string const& name = "irfft")
 {
-	nh_require(nullptr, (N & (N - 1)) == 0, "irfft requires power of 2 size, got %d", N);
+	nh_require((N & (N - 1)) == 0, "irfft requires power of 2 size, got %d", N);
 
 	int half = N / 2 + 1;
 
@@ -99,8 +99,8 @@ Halide::Func irfft(Halide::Func input, int N, std::string const& name = "irfft")
 inline
 Halide::Func rfft2d(Halide::Func input, int rows, int cols, std::string const& name = "rfft2d")
 {
-	nh_require(nullptr, (rows & (rows - 1)) == 0, "rfft2d requires power of 2 rows, got %d", rows);
-	nh_require(nullptr, (cols & (cols - 1)) == 0, "rfft2d requires power of 2 cols, got %d", cols);
+	nh_require((rows & (rows - 1)) == 0, "rfft2d requires power of 2 rows, got %d", rows);
+	nh_require((cols & (cols - 1)) == 0, "rfft2d requires power of 2 cols, got %d", cols);
 
 	// Convert real to complex
 	Halide::Func complex_in("rfft2d_cin");
@@ -126,8 +126,8 @@ Halide::Func rfft2d(Halide::Func input, int rows, int cols, std::string const& n
 inline
 Halide::Func irfft2d(Halide::Func input, int rows, int cols, std::string const& name = "irfft2d")
 {
-	nh_require(nullptr, (rows & (rows - 1)) == 0, "irfft2d requires power of 2 rows, got %d", rows);
-	nh_require(nullptr, (cols & (cols - 1)) == 0, "irfft2d requires power of 2 cols, got %d", cols);
+	nh_require((rows & (rows - 1)) == 0, "irfft2d requires power of 2 rows, got %d", rows);
+	nh_require((cols & (cols - 1)) == 0, "irfft2d requires power of 2 cols, got %d", cols);
 
 	auto result = ifft2d_normalized(input, rows, cols, name + "_ifft");
 
@@ -153,7 +153,7 @@ Halide::Func irfft2d(Halide::Func input, int rows, int cols, std::string const& 
 inline
 Halide::Func fftfreq(int N, float d = 1.0f, std::string const& name = "fftfreq")
 {
-	nh_require(nullptr, N > 0, "fftfreq requires N > 0, got %d", N);
+	nh_require(N > 0, "fftfreq requires N > 0, got %d", N);
 
 	Halide::Func ret(name);
 	Halide::Var x;
@@ -181,7 +181,7 @@ Halide::Func fftfreq(int N, float d = 1.0f, std::string const& name = "fftfreq")
 inline
 Halide::Func rfftfreq(int N, float d = 1.0f, std::string const& name = "rfftfreq")
 {
-	nh_require(nullptr, N > 0, "rfftfreq requires N > 0, got %d", N);
+	nh_require(N > 0, "rfftfreq requires N > 0, got %d", N);
 
 	Halide::Func ret(name);
 	Halide::Var x;

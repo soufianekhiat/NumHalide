@@ -29,9 +29,9 @@ NS_NUM_HALIDE_BEGIN
 inline
 Halide::Func cumsum(Halide::Func f, const shape_t& shape, int axis = 0, std::string const& name = "cumsum")
 {
-	nh_require(nullptr, shape.rank == 1, "cumsum currently supports 1D arrays only");
+	nh_require(shape.rank == 1, "cumsum currently supports 1D arrays only");
 	int norm_axis = normalized_axis(axis, shape.rank);
-	nh_require(nullptr, norm_axis == 0, "cumsum: axis must be 0 for 1D arrays");
+	nh_require(norm_axis == 0, "cumsum: axis must be 0 for 1D arrays");
 
 	int n = shape.extents[0];
 
@@ -72,9 +72,9 @@ Halide::Func cumsum(Halide::Func f, const shape_t& shape, int axis = 0, std::str
 inline
 Halide::Func cumprod(Halide::Func f, const shape_t& shape, int axis = 0, std::string const& name = "cumprod")
 {
-	nh_require(nullptr, shape.rank == 1, "cumprod currently supports 1D arrays only");
+	nh_require(shape.rank == 1, "cumprod currently supports 1D arrays only");
 	int norm_axis = normalized_axis(axis, shape.rank);
-	nh_require(nullptr, norm_axis == 0, "cumprod: axis must be 0 for 1D arrays");
+	nh_require(norm_axis == 0, "cumprod: axis must be 0 for 1D arrays");
 
 	int n = shape.extents[0];
 
@@ -114,11 +114,11 @@ Halide::Func cumprod(Halide::Func f, const shape_t& shape, int axis = 0, std::st
 inline
 Halide::Func diff(Halide::Func f, const shape_t& shape, int axis = 0, int n = 1, std::string const& name = "diff")
 {
-	nh_require(nullptr, shape.rank == 1, "diff currently supports 1D arrays only");
+	nh_require(shape.rank == 1, "diff currently supports 1D arrays only");
 	int norm_axis = normalized_axis(axis, shape.rank);
-	nh_require(nullptr, norm_axis == 0, "diff: axis must be 0 for 1D arrays");
-	nh_require(nullptr, n >= 1, "diff: n must be >= 1");
-	nh_require(nullptr, shape.extents[0] > n, "diff: array size must be greater than n");
+	nh_require(norm_axis == 0, "diff: axis must be 0 for 1D arrays");
+	nh_require(n >= 1, "diff: n must be >= 1");
+	nh_require(shape.extents[0] > n, "diff: array size must be greater than n");
 
 	Halide::Func ret(name);
 	Halide::Var x;

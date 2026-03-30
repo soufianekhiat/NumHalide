@@ -160,7 +160,7 @@ Halide::Func threshold_otsu(Halide::Func f, const shape_t& shape, int bins = 256
 inline
 Halide::Func threshold_adaptive(Halide::Func f, const shape_t& shape, int block_size, std::string const& name = "adaptive")
 {
-	nh_require(nullptr, shape.rank == 2, "adaptive threshold requires 2D");
+	nh_require(shape.rank == 2, "adaptive threshold requires 2D");
 	int rows = shape.extents[0];
 	int cols = shape.extents[1];
 	int half = block_size / 2;

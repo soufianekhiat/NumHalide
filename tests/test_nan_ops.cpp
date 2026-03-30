@@ -9,20 +9,6 @@
 
 using namespace numhalide;
 
-// Helper: build a 1D Func backed by an ImageParam to prevent constant-folding.
-// The caller owns `data` and `buf`; `ip` must outlive the returned Func.
-static void make_nan_func(
-    Halide::ImageParam& ip,
-    Halide::Buffer<float>& buf,
-    float* raw, int n,
-    Halide::Func& out_func)
-{
-    buf = Halide::Buffer<float>(raw, n);
-    ip.set(buf);
-    Halide::Var x;
-    out_func(x) = ip(x);
-}
-
 // -----------------------------------------------------------------------------
 // NanSum Tests
 // -----------------------------------------------------------------------------
@@ -359,4 +345,96 @@ TEST(NanOps, NanVarStdRelation) {
     std_result.realize(std_out);
 
     EXPECT_NEAR(std_out(0) * std_out(0), var_out(0), 1e-4f);
+}
+
+// -----------------------------------------------------------------------------
+// NanOpsInf Tests — infinity handling
+// -----------------------------------------------------------------------------
+
+TEST(NanOpsInf, NanSum_WithInf) {
+    // {1.0, inf, 2.0, NaN} -> inf is a valid value, NaN is skipped
+    // nansum = 1 + inf + 2 = inf
+    shape_t s = {4};
+    Halide::ImageParam ip(Halide::Float(32), 1, "ip_nansum_inf");
+    float inf = std::numeric_limits<float>::infinity();
+    float nan = std::numeric_limits<float>::quiet_NaN();
+    float data[] = {1.0f, inf, 2.0f, nan};
+    Halide::Buffer<float> buf(data, 4);
+    ip.set(buf);
+    Halide::Func f("f_nansum_inf");
+    Halide::Var x;
+    f(x) = ip(x);
+
+    auto result = nansum(f, s, {0}, /*keepdims=*/true);
+
+    Halide::Runtime::Buffer<float> out(1);
+    result.realize(out);
+
+    EXPECT_TRUE(std::isinf(out(0)));
+    EXPECT_GT(out(0), 0.0f);  // positive infinity
+}
+
+TEST(NanOpsInf, NanMin_WithNegInf) {
+    // {NaN, -inf, 5.0} -> nanmin = -inf  (-inf is valid, NaN is skipped)
+    shape_t s = {3};
+    Halide::ImageParam ip(Halide::Float(32), 1, "ip_nanmin_neginf");
+    float nan = std::numeric_limits<float>::quiet_NaN();
+    float neginf = -std::numeric_limits<float>::infinity();
+    float data[] = {nan, neginf, 5.0f};
+    Halide::Buffer<float> buf(data, 3);
+    ip.set(buf);
+    Halide::Func f("f_nanmin_neginf");
+    Halide::Var x;
+    f(x) = ip(x);
+
+    auto result = nanmin(f, s, {0}, /*keepdims=*/true);
+
+    Halide::Runtime::Buffer<float> out(1);
+    result.realize(out);
+
+    EXPECT_TRUE(std::isinf(out(0)));
+    EXPECT_LT(out(0), 0.0f);  // negative infinity
+}
+
+TEST(NanOpsInf, NanMax_WithPosInf) {
+    // {NaN, 3.0, inf} -> nanmax = inf  (inf is valid, NaN is skipped)
+    shape_t s = {3};
+    Halide::ImageParam ip(Halide::Float(32), 1, "ip_nanmax_posinf");
+    float nan = std::numeric_limits<float>::quiet_NaN();
+    float inf = std::numeric_limits<float>::infinity();
+    float data[] = {nan, 3.0f, inf};
+    Halide::Buffer<float> buf(data, 3);
+    ip.set(buf);
+    Halide::Func f("f_nanmax_posinf");
+    Halide::Var x;
+    f(x) = ip(x);
+
+    auto result = nanmax(f, s, {0}, /*keepdims=*/true);
+
+    Halide::Runtime::Buffer<float> out(1);
+    result.realize(out);
+
+    EXPECT_TRUE(std::isinf(out(0)));
+    EXPECT_GT(out(0), 0.0f);  // positive infinity
+}
+
+TEST(NanOpsInf, NanMean_InfPropagates) {
+    // {2.0, inf, 4.0} — no NaN — nanmean = (2 + inf + 4) / 3 = inf
+    shape_t s = {3};
+    Halide::ImageParam ip(Halide::Float(32), 1, "ip_nanmean_inf");
+    float inf = std::numeric_limits<float>::infinity();
+    float data[] = {2.0f, inf, 4.0f};
+    Halide::Buffer<float> buf(data, 3);
+    ip.set(buf);
+    Halide::Func f("f_nanmean_inf");
+    Halide::Var x;
+    f(x) = ip(x);
+
+    auto result = nanmean(f, s, {0}, /*keepdims=*/true);
+
+    Halide::Runtime::Buffer<float> out(1);
+    result.realize(out);
+
+    EXPECT_TRUE(std::isinf(out(0)));
+    EXPECT_GT(out(0), 0.0f);  // positive infinity
 }

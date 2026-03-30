@@ -24,7 +24,7 @@ NS_NUM_HALIDE_BEGIN
 /// @param name Function name
 /// @return Complex 2D Func with normalized cross power spectrum
 inline
-Halide::Func cross_power_spectrum(Halide::Func a, Halide::Func b, int rows, int cols, std::string const& name = "cps")
+Halide::Func cross_power_spectrum(Halide::Func a, Halide::Func b, int /*rows*/, int /*cols*/, std::string const& name = "cps")
 {
 	Halide::Func ret(name);
 	Halide::Var x, y;

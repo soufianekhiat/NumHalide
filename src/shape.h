@@ -21,22 +21,16 @@ NS_NUM_HALIDE_BEGIN
 #include <cstdio>
 #include <stdexcept>
 
-/// @brief Require condition to be true, otherwise report error
-/// @param user_context Halide user context (can be nullptr)
+/// @brief Require condition to be true, otherwise throw std::runtime_error.
 /// @param cond Condition to check
-/// @param fmt Format string
-/// @param ... Arguments
-#define nh_require(user_context, cond, fmt, ...) \
+/// @param fmt  printf-style format string for the error message
+/// @param ...  Format arguments
+#define nh_require(cond, fmt, ...) \
 	do { \
 		if(!(cond)) { \
-			char buf[1024]; \
-			snprintf(buf, 1024, fmt, ##__VA_ARGS__); \
-			if (user_context) { \
-				/*halide_error(user_context, buf);*/ \
-				throw std::runtime_error(buf); \
-			} else { \
-				throw std::runtime_error(buf); \
-			} \
+			char _nh_buf[1024]; \
+			snprintf(_nh_buf, 1024, fmt, ##__VA_ARGS__); \
+			throw std::runtime_error(_nh_buf); \
 		} \
 	} while(0)
 
@@ -54,7 +48,8 @@ struct shape_t {
 
 	shape_t(std::initializer_list<int> dims) {
 		rank = static_cast<int>(dims.size());
-		NH_ASSERT(rank <= MAX_RANK && "Rank exceeds maximum supported (8)");
+		nh_require(rank <= MAX_RANK,
+			"shape_t: rank %d exceeds MAX_RANK (%d)", rank, MAX_RANK);
 		int i = 0;
 		for (int d : dims) {
 			extents[i++] = d;
@@ -63,19 +58,22 @@ struct shape_t {
 
 	shape_t(const std::vector<int>& dims) {
 		rank = static_cast<int>(dims.size());
-		NH_ASSERT(rank <= MAX_RANK && "Rank exceeds maximum supported (8)");
+		nh_require(rank <= MAX_RANK,
+			"shape_t: rank %d exceeds MAX_RANK (%d)", rank, MAX_RANK);
 		for (int i = 0; i < rank; ++i) {
 			extents[i] = dims[i];
 		}
 	}
 
 	int operator[](int i) const {
-		NH_ASSERT(i >= 0 && i < rank);
+		nh_require(i >= 0 && i < rank,
+			"shape_t: index %d out of bounds [0, %d)", i, rank);
 		return extents[i];
 	}
 
 	int& operator[](int i) {
-		NH_ASSERT(i >= 0 && i < rank);
+		nh_require(i >= 0 && i < rank,
+			"shape_t: index %d out of bounds [0, %d)", i, rank);
 		return extents[i];
 	}
 
@@ -114,7 +112,8 @@ inline std::string shape_to_string(const shape_t& s) {
 /// @return Normalized axis in [0, rank)
 inline int normalized_axis(int axis, int rank) {
 	if (axis < 0) axis += rank;
-	NH_ASSERT(axis >= 0 && axis < rank && "Axis out of bounds");
+	nh_require(axis >= 0 && axis < rank,
+		"Axis %d out of bounds for rank-%d tensor", axis, rank);
 	return axis;
 }
 
@@ -130,7 +129,7 @@ inline bool check_same_except(const shape_t& a, const shape_t& b, int axis) {
 /// @brief Infer output shape for concatenation
 inline shape_t infer_concat(const shape_t& a, const shape_t& b, int axis) {
 	int norm_axis = normalized_axis(axis, a.rank);
-	nh_require(nullptr, check_same_except(a, b, norm_axis), 
+	nh_require(check_same_except(a, b, norm_axis), 
 		"Shapes %s and %s mismatch for concat at axis %d", 
 		shape_to_string(a).c_str(), shape_to_string(b).c_str(), axis);
 	
@@ -188,7 +187,7 @@ inline shape_t infer_broadcast(const shape_t& a, const shape_t& b) {
 		} else if (dim_b == 1) {
 			res.extents[res_idx] = dim_a;
 		} else {
-			nh_require(nullptr, false,
+			nh_require(false,
 				"Operands could not be broadcast together with shapes %s and %s",
 				shape_to_string(a).c_str(), shape_to_string(b).c_str());
 		}
@@ -215,7 +214,7 @@ inline shape_t infer_slice(const shape_t& in, int axis, int start, int stop, int
 	start = std::max(0, std::min(start, extent));
 	stop = std::max(0, std::min(stop, extent));
 
-	nh_require(nullptr, step != 0, "Slice step cannot be zero");
+	nh_require(step != 0, "Slice step cannot be zero");
 
 	// Compute output size
 	int out_size = 0;
@@ -235,7 +234,7 @@ inline shape_t infer_slice(const shape_t& in, int axis, int start, int stop, int
 /// @param axes Permutation of dimensions
 /// @return Transposed shape
 inline shape_t infer_transpose(const shape_t& in, const std::vector<int>& axes) {
-	nh_require(nullptr, static_cast<int>(axes.size()) == in.rank,
+	nh_require(static_cast<int>(axes.size()) == in.rank,
 		"Transpose axes length %d does not match rank %d",
 		static_cast<int>(axes.size()), in.rank);
 
@@ -243,7 +242,7 @@ inline shape_t infer_transpose(const shape_t& in, const std::vector<int>& axes) 
 	std::vector<bool> seen(in.rank, false);
 	for (int ax : axes) {
 		int norm = normalized_axis(ax, in.rank);
-		nh_require(nullptr, !seen[norm], "Duplicate axis %d in transpose", ax);
+		nh_require(!seen[norm], "Duplicate axis %d in transpose", ax);
 		seen[norm] = true;
 	}
 

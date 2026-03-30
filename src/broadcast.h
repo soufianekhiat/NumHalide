@@ -24,7 +24,7 @@ NS_NUM_HALIDE_BEGIN
 /// @return Broadcasted Func
 inline Halide::Func broadcast_to(Halide::Func f, const shape_t& src_shape, const shape_t& dst_shape, std::string const& name = "broadcast_to") {
     int offset = dst_shape.rank - src_shape.rank;
-    nh_require(nullptr, offset >= 0, "Target rank %d must be >= source rank %d", dst_shape.rank, src_shape.rank);
+    nh_require(offset >= 0, "Target rank %d must be >= source rank %d", dst_shape.rank, src_shape.rank);
 
     Halide::Func ret(name);
     std::vector<Halide::Var> vars;
@@ -48,7 +48,7 @@ inline Halide::Func broadcast_to(Halide::Func f, const shape_t& src_shape, const
         } else if (src_dim == 1) {
             args[arg_idx] = 0;
         } else {
-            nh_require(nullptr, false, "Cannot broadcast dim %d of size %d to %d", i, src_dim, dst_dim);
+            nh_require(false, "Cannot broadcast dim %d of size %d to %d", i, src_dim, dst_dim);
         }
     }
 
@@ -116,5 +116,24 @@ NH_BINARY_OP(logical_or, a_b(vars) || b_b(vars))
 NH_BINARY_OP(logical_xor, a_b(vars) != b_b(vars)) // XOR for boolean is !=
 
 #undef NH_BINARY_OP
+
+// ---- Shape inference for broadcast binary operations ----
+// All binary broadcast ops produce the same output shape: the broadcast of the two input shapes.
+inline shape_t infer_add(const shape_t& a, const shape_t& b)      { return infer_broadcast(a, b); }
+inline shape_t infer_sub(const shape_t& a, const shape_t& b)      { return infer_broadcast(a, b); }
+inline shape_t infer_mul(const shape_t& a, const shape_t& b)      { return infer_broadcast(a, b); }
+inline shape_t infer_div(const shape_t& a, const shape_t& b)      { return infer_broadcast(a, b); }
+inline shape_t infer_pow(const shape_t& a, const shape_t& b)      { return infer_broadcast(a, b); }
+inline shape_t infer_minimum(const shape_t& a, const shape_t& b)  { return infer_broadcast(a, b); }
+inline shape_t infer_maximum(const shape_t& a, const shape_t& b)  { return infer_broadcast(a, b); }
+inline shape_t infer_equal(const shape_t& a, const shape_t& b)    { return infer_broadcast(a, b); }
+inline shape_t infer_not_equal(const shape_t& a, const shape_t& b){ return infer_broadcast(a, b); }
+inline shape_t infer_less(const shape_t& a, const shape_t& b)     { return infer_broadcast(a, b); }
+inline shape_t infer_less_equal(const shape_t& a, const shape_t& b){ return infer_broadcast(a, b); }
+inline shape_t infer_greater(const shape_t& a, const shape_t& b)  { return infer_broadcast(a, b); }
+inline shape_t infer_greater_equal(const shape_t& a, const shape_t& b){ return infer_broadcast(a, b); }
+inline shape_t infer_logical_and(const shape_t& a, const shape_t& b){ return infer_broadcast(a, b); }
+inline shape_t infer_logical_or(const shape_t& a, const shape_t& b) { return infer_broadcast(a, b); }
+inline shape_t infer_logical_xor(const shape_t& a, const shape_t& b){ return infer_broadcast(a, b); }
 
 NS_NUM_HALIDE_END

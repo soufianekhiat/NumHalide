@@ -11,6 +11,7 @@ function(numhalide_set_target_options target)
         target_compile_options(${target} PRIVATE
             /bigobj
             /utf-8
+            /W4           # Warning level 4
             /GR-          # Disable RTTI (matches Sharpmake config)
             /EHsc         # Enable exceptions
             /FS           # Serialize PDB writes (required when /MP is active)

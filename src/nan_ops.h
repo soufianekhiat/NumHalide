@@ -512,7 +512,7 @@ inline
 Halide::Func nancumsum(Halide::Func f, const shape_t& shape, int axis = 0,
     std::string const& name = "nancumsum")
 {
-    nh_require(nullptr, shape.rank == 1, "nancumsum: 1D only");
+    nh_require(shape.rank == 1, "nancumsum: 1D only");
     (void)axis;
     int n = shape.extents[0];
     Halide::Var x;
@@ -534,7 +534,7 @@ inline
 Halide::Func nancumprod(Halide::Func f, const shape_t& shape, int axis = 0,
     std::string const& name = "nancumprod")
 {
-    nh_require(nullptr, shape.rank == 1, "nancumprod: 1D only");
+    nh_require(shape.rank == 1, "nancumprod: 1D only");
     (void)axis;
     int n = shape.extents[0];
     Halide::Var x;

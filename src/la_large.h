@@ -35,7 +35,7 @@ static constexpr int LA_LARGE_MAX_N = 32;
 inline Halide::Func cholesky_large(Halide::Func A, int n,
     std::string const& name = "chol_large")
 {
-    nh_require(nullptr, n > 0 && n <= LA_LARGE_MAX_N,
+    nh_require(n > 0 && n <= LA_LARGE_MAX_N,
         "cholesky_large: n=%d must be in [1, %d]", n, LA_LARGE_MAX_N);
     return cholesky(A, n, name);
 }
@@ -60,9 +60,9 @@ inline shape_t infer_cholesky_large(int n) { return shape_t{n, n}; }
 inline QRResult qr_large(Halide::Func A, int m, int n,
     std::string const& name = "qr_large")
 {
-    nh_require(nullptr, n > 0 && n <= LA_LARGE_MAX_N,
+    nh_require(n > 0 && n <= LA_LARGE_MAX_N,
         "qr_large: n=%d must be in [1, %d]", n, LA_LARGE_MAX_N);
-    nh_require(nullptr, m >= n,
+    nh_require(m >= n,
         "qr_large: m=%d must be >= n=%d", m, n);
     return qr_gs(A, m, n, name);
 }
@@ -99,9 +99,9 @@ inline SVDResult svd_large(Halide::Func A, int m, int n,
     int n_sweeps = -1,
     std::string const& name = "svd_large")
 {
-    nh_require(nullptr, n > 0 && n <= LA_LARGE_MAX_N,
+    nh_require(n > 0 && n <= LA_LARGE_MAX_N,
         "svd_large: n=%d must be in [1, %d]", n, LA_LARGE_MAX_N);
-    nh_require(nullptr, m >= n,
+    nh_require(m >= n,
         "svd_large: m=%d must be >= n=%d", m, n);
     if (n_sweeps < 0)
         n_sweeps = std::max(3, 5 + n / 4);  // auto-scale sweep count

@@ -46,7 +46,7 @@ struct complex_f32 {
     /// (a+bi)/(c+di) = [(a+bi)(c-di)] / (c²+d²)
     complex_f32 operator/(const complex_f32& b) const {
         float denom = b.re * b.re + b.im * b.im;
-        nh_require(nullptr, denom != 0.0f, "complex_f32::operator/: division by zero");
+        nh_require(denom != 0.0f, "complex_f32::operator/: division by zero");
         return complex_f32((re * b.re + im * b.im) / denom,
                            (im * b.re - re * b.im) / denom);
     }
@@ -74,7 +74,7 @@ struct complex_f32 {
     /// Unit vector in same direction
     complex_f32 normalized() const {
         float a = abs();
-        nh_require(nullptr, a > 0.0f, "complex_f32::normalized: zero magnitude");
+        nh_require(a > 0.0f, "complex_f32::normalized: zero magnitude");
         return complex_f32(re / a, im / a);
     }
 };
@@ -106,7 +106,7 @@ struct ComplexBuffer {
     explicit ComplexBuffer(int n)
         : re(n), im(n)
     {
-        nh_require(nullptr, n > 0, "ComplexBuffer: n must be > 0, got %d", n);
+        nh_require(n > 0, "ComplexBuffer: n must be > 0, got %d", n);
         for (int i = 0; i < n; ++i) { re(i) = 0.0f; im(i) = 0.0f; }
     }
 
@@ -131,7 +131,7 @@ struct ComplexBuffer {
 
 /// @brief Element-wise addition
 inline ComplexBuffer complex_buf_add(const ComplexBuffer& a, const ComplexBuffer& b) {
-    nh_require(nullptr, a.size() == b.size(),
+    nh_require(a.size() == b.size(),
                "complex_buf_add: size mismatch %d vs %d", a.size(), b.size());
     int n = a.size();
     ComplexBuffer out(n);
@@ -142,7 +142,7 @@ inline ComplexBuffer complex_buf_add(const ComplexBuffer& a, const ComplexBuffer
 
 /// @brief Element-wise subtraction
 inline ComplexBuffer complex_buf_sub(const ComplexBuffer& a, const ComplexBuffer& b) {
-    nh_require(nullptr, a.size() == b.size(),
+    nh_require(a.size() == b.size(),
                "complex_buf_sub: size mismatch %d vs %d", a.size(), b.size());
     int n = a.size();
     ComplexBuffer out(n);
@@ -153,7 +153,7 @@ inline ComplexBuffer complex_buf_sub(const ComplexBuffer& a, const ComplexBuffer
 
 /// @brief Element-wise complex multiplication
 inline ComplexBuffer complex_buf_mul(const ComplexBuffer& a, const ComplexBuffer& b) {
-    nh_require(nullptr, a.size() == b.size(),
+    nh_require(a.size() == b.size(),
                "complex_buf_mul: size mismatch %d vs %d", a.size(), b.size());
     int n = a.size();
     ComplexBuffer out(n);
@@ -210,13 +210,57 @@ inline ComplexBuffer complex_buf_from_real(const Halide::Runtime::Buffer<float>&
 /// @brief Construct ComplexBuffer from magnitude and phase buffers
 inline ComplexBuffer complex_buf_from_polar(const Halide::Runtime::Buffer<float>& mag,
                                             const Halide::Runtime::Buffer<float>& phase_buf) {
-    nh_require(nullptr, mag.width() == phase_buf.width(),
+    nh_require(mag.width() == phase_buf.width(),
                "complex_buf_from_polar: size mismatch %d vs %d",
                mag.width(), phase_buf.width());
     int n = mag.width();
     ComplexBuffer out(n);
     for (int i = 0; i < n; ++i)
         out.set(i, complex_from_polar(mag(i), phase_buf(i)));
+    return out;
+}
+
+// =============================================================================
+// Bridge: ComplexBuffer <-> Halide Func (Tuple-based complex)
+// =============================================================================
+
+/// @brief Wrap a ComplexBuffer's data in a Halide Func returning Tuple(re, im).
+/// The returned Func captures Halide::Buffer<float> objects by value, so the
+/// source ComplexBuffer does NOT need to outlive the Func.
+/// @param cb   Source ComplexBuffer
+/// @param name Func name
+/// @return Func f where f(x) = Tuple(re[x], im[x])
+inline Halide::Func complex_buf_to_func(const ComplexBuffer& cb,
+                                         const std::string& name = "cbuf_func")
+{
+    int n = cb.size();
+    // Copy data into fresh Halide::Buffer (non-Runtime, keeps data alive inside Func)
+    Halide::Buffer<float> b_re(n), b_im(n);
+    for (int i = 0; i < n; ++i) {
+        b_re(i) = cb(i).re;
+        b_im(i) = cb(i).im;
+    }
+    Halide::Func f(name);
+    Halide::Var x("x");
+    f(x) = Halide::Tuple(b_re(x), b_im(x));
+    return f;
+}
+
+/// @brief Realize a complex Tuple Func into a ComplexBuffer.
+/// @param f    Halide Func returning Tuple(re, im)
+/// @param n    Number of complex elements to realize
+/// @return ComplexBuffer with the realized values
+inline ComplexBuffer complex_func_to_buf(Halide::Func f, int n,
+                                          const std::string& /*name*/ = "func_cbuf")
+{
+    nh_require(n > 0, "complex_func_to_buf: n must be > 0, got %d", n);
+    Halide::Realization r = f.realize({n});
+    auto re_buf = r[0].as<float>();
+    auto im_buf = r[1].as<float>();
+
+    ComplexBuffer out(n);
+    for (int i = 0; i < n; ++i)
+        out.set(i, complex_f32(re_buf(i), im_buf(i)));
     return out;
 }
 

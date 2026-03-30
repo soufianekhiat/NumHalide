@@ -2,7 +2,7 @@
 /// @brief Example 16: Sorting and search operations
 ///
 /// Demonstrates:
-///   - argmin/argmax for finding extrema indices
+///   - global_argmin/global_argmax for finding extrema indices
 ///   - bitonic_sort for power-of-2 sorting
 ///   - bitonic_argsort for getting sorted indices
 ///
@@ -67,10 +67,10 @@ int main(int argc, char **argv) {
         // Create sorted version using bitonic sort
         auto sorted_values = bitonic_sort(bar_values, 256, "sorted");
 
-        // Argmin/argmax demonstration
+        // Argmin/global_argmax demonstration
         shape_t values_shape = {256};
-        auto min_idx = argmin(bar_values, values_shape, "min_idx");
-        auto max_idx = argmax(bar_values, values_shape, "max_idx");
+        auto min_idx = global_argmin(bar_values, values_shape, "min_idx");
+        auto max_idx = global_argmax(bar_values, values_shape, "max_idx");
 
         // For each pixel, compute the bar height and check if we're below it
         Halide::Expr section = y / (height / 2);  // 0 = top (unsorted), 1 = bottom (sorted)

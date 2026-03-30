@@ -14,17 +14,17 @@ NS_NUM_HALIDE_BEGIN
 template < typename ValueType >
 bool is_const_value(Halide::Expr x, ValueType v)
 {
-	if (int64_t const* pValue = Halide::Internal::as_const_int(x))
+	if (int64_t const* pValueInt = Halide::Internal::as_const_int(x))
 	{
-		return static_cast<ValueType>(*pValue) == v;
+		return static_cast<ValueType>(*pValueInt) == v;
 	}
-	else if (uint64_t const* pValue = Halide::Internal::as_const_uint(x))
+	else if (uint64_t const* pValueUint = Halide::Internal::as_const_uint(x))
 	{
-		return static_cast<ValueType>(*pValue) == v;
+		return static_cast<ValueType>(*pValueUint) == v;
 	}
-	else if (f64 const* pValue = Halide::Internal::as_const_float(x))
+	else if (f64 const* pValueFloat = Halide::Internal::as_const_float(x))
 	{
-		return static_cast<ValueType>(*pValue) == v;
+		return static_cast<ValueType>(*pValueFloat) == v;
 	}
 	return Halide::Internal::is_const(x, static_cast<Int64>(v));
 }
@@ -185,7 +185,7 @@ Halide::Func	full(Halide::Type type, Halide::Expr value, Int32 dim, std::string 
 
 /// @brief Return an empty (uninitialized) Func
 inline
-Halide::Func	empty(Halide::Type type, const shape_t& shape, std::string const& name = "empty")
+Halide::Func	empty(Halide::Type /*type*/, const shape_t& shape, std::string const& name = "empty")
 {
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
@@ -244,7 +244,7 @@ Halide::Func	zeros(Halide::Type type, Int32 const dim, std::string const& name =
 /// Usage:
 ///   identity(Float(32), 3) == [[1,0,0], [0,1,0], [0,0,1]]
 inline
-Halide::Func	identity(Halide::Type type, Int32 const dim, std::string const& name = "identity")
+Halide::Func	identity(Halide::Type type, Int32 const /*dim*/, std::string const& name = "identity")
 {
 	Halide::Func ret(name);
 	Halide::Var x("x"), y("y");

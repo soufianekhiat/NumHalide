@@ -117,3 +117,129 @@ TEST(View, Slice_WriteThrough) {
     vs(0, 0) = 99.0f;  // sets col 2, row 0
     EXPECT_EQ(orig(2, 0), 99.0f);  // should reflect in original
 }
+
+// =============================================================================
+// ViewInplace: combining view operations with inplace operations
+// =============================================================================
+
+// 1. Threshold on a 1D slice — write-through to original
+TEST(ViewInplace, Threshold_On_Slice) {
+    // buf = {-1, 0, 1, 2, 3}
+    Halide::Runtime::Buffer<float> buf(5);
+    buf(0) = -1.0f; buf(1) = 0.0f; buf(2) = 1.0f; buf(3) = 2.0f; buf(4) = 3.0f;
+
+    // slice [1, 4) -> {0, 1, 2}
+    auto slc = view_slice(buf, 0, 1, 4);
+    ASSERT_EQ(slc.dim(0).extent(), 3);
+
+    // threshold 0.5 -> each element becomes max(elem, 0.5)
+    inplace_threshold(slc, 0.5f);
+
+    // view should reflect new values
+    EXPECT_NEAR(slc(0), 0.5f, 1e-5f);  // max(0, 0.5) = 0.5
+    EXPECT_NEAR(slc(1), 1.0f, 1e-5f);  // max(1, 0.5) = 1.0
+    EXPECT_NEAR(slc(2), 2.0f, 1e-5f);  // max(2, 0.5) = 2.0
+
+    // original buf at positions 1,2,3 must have changed (write-through)
+    EXPECT_NEAR(buf(1), 0.5f, 1e-5f);
+    EXPECT_NEAR(buf(2), 1.0f, 1e-5f);
+    EXPECT_NEAR(buf(3), 2.0f, 1e-5f);
+    // positions 0 and 4 must be untouched
+    EXPECT_NEAR(buf(0), -1.0f, 1e-5f);
+    EXPECT_NEAR(buf(4),  3.0f, 1e-5f);
+}
+
+// 2. Scale on a transposed view — all original values doubled
+TEST(ViewInplace, Scale_On_Transposed) {
+    // 2 cols x 3 rows: values 0..5
+    Halide::Runtime::Buffer<float> orig(2, 3);
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 2; ++c)
+            orig(c, r) = float(r * 2 + c);
+
+    auto vt = view_transpose(orig);  // 3 cols x 2 rows
+    ASSERT_EQ(vt.dim(0).extent(), 3);
+    ASSERT_EQ(vt.dim(1).extent(), 2);
+
+    inplace_scale(vt, 2.0f);
+
+    // All original values must be doubled
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 2; ++c)
+            EXPECT_NEAR(orig(c, r), float(r * 2 + c) * 2.0f, 1e-5f)
+                << "orig(" << c << "," << r << ")";
+}
+
+// 3. Clamp on a 1D slice — write-through and other elements untouched
+TEST(ViewInplace, Clamp_On_Slice) {
+    // buf = {-5, -3, 0, 3, 5}
+    Halide::Runtime::Buffer<float> buf(5);
+    buf(0) = -5.0f; buf(1) = -3.0f; buf(2) = 0.0f; buf(3) = 3.0f; buf(4) = 5.0f;
+
+    // slice [1, 4) -> {-3, 0, 3}
+    auto slc = view_slice(buf, 0, 1, 4);
+    ASSERT_EQ(slc.dim(0).extent(), 3);
+
+    // clamp(-1, 2)
+    inplace_clamp(slc, -1.0f, 2.0f);
+
+    // view: max(-1, min(2, x))
+    EXPECT_NEAR(slc(0), -1.0f, 1e-5f);  // clamp(-3, -1, 2) = -1
+    EXPECT_NEAR(slc(1),  0.0f, 1e-5f);  // clamp(0,  -1, 2) =  0
+    EXPECT_NEAR(slc(2),  2.0f, 1e-5f);  // clamp(3,  -1, 2) =  2
+
+    // original at positions 1,2,3 must have changed
+    EXPECT_NEAR(buf(1), -1.0f, 1e-5f);
+    EXPECT_NEAR(buf(2),  0.0f, 1e-5f);
+    EXPECT_NEAR(buf(3),  2.0f, 1e-5f);
+    // positions 0 and 4 must be untouched
+    EXPECT_NEAR(buf(0), -5.0f, 1e-5f);
+    EXPECT_NEAR(buf(4),  5.0f, 1e-5f);
+}
+
+// 4. AddScalar on a reshaped view — all original 2D elements updated
+TEST(ViewInplace, AddScalar_On_Reshape) {
+    // 2 cols x 3 rows (6 elements), values 0..5
+    Halide::Runtime::Buffer<float> orig(2, 3);
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 2; ++c)
+            orig(c, r) = float(r * 2 + c);
+
+    // reshape to 1D (6 elements)
+    auto vr = view_reshape(orig, {6});
+    ASSERT_EQ(vr.dimensions(), 1);
+    ASSERT_EQ(vr.dim(0).extent(), 6);
+
+    inplace_add_scalar(vr, 10.0f);
+
+    // every element in the original 2D buffer must be +10
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 2; ++c)
+            EXPECT_NEAR(orig(c, r), float(r * 2 + c) + 10.0f, 1e-5f)
+                << "orig(" << c << "," << r << ")";
+}
+
+// 5. Inplace on one slice does NOT affect the other slice
+TEST(ViewInplace, Inplace_Does_Not_Affect_Other_Slice) {
+    // buf of 6 elements: {1, 2, 3, 4, 5, 6}
+    Halide::Runtime::Buffer<float> buf(6);
+    for (int i = 0; i < 6; ++i) buf(i) = float(i + 1);
+
+    // sliceA = [0, 3)  -> {1, 2, 3}
+    // sliceB = [3, 6)  -> {4, 5, 6}
+    auto slcA = view_slice(buf, 0, 0, 3);
+    auto slcB = view_slice(buf, 0, 3, 6);
+
+    // apply threshold=100 to sliceA (all 3 values become 100)
+    inplace_threshold(slcA, 100.0f);
+
+    // sliceB must be completely unchanged
+    EXPECT_NEAR(slcB(0), 4.0f, 1e-5f);
+    EXPECT_NEAR(slcB(1), 5.0f, 1e-5f);
+    EXPECT_NEAR(slcB(2), 6.0f, 1e-5f);
+
+    // and through to the original buffer tail
+    EXPECT_NEAR(buf(3), 4.0f, 1e-5f);
+    EXPECT_NEAR(buf(4), 5.0f, 1e-5f);
+    EXPECT_NEAR(buf(5), 6.0f, 1e-5f);
+}

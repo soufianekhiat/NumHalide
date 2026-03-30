@@ -28,14 +28,12 @@ NS_NUM_HALIDE_BEGIN
 inline
 Halide::Func matmul(Halide::Func a, const shape_t& shape_a, Halide::Func b, const shape_t& shape_b, std::string const& name = "matmul")
 {
-	nh_require(nullptr, shape_a.rank == 2 && shape_b.rank == 2,
+	nh_require(shape_a.rank == 2 && shape_b.rank == 2,
 		"matmul requires 2D matrices, got ranks %d and %d", shape_a.rank, shape_b.rank);
 
-	int M = shape_a.extents[0];  // rows of a
 	int K = shape_a.extents[1];  // cols of a = rows of b
-	int N = shape_b.extents[1];  // cols of b
 
-	nh_require(nullptr, shape_a.extents[1] == shape_b.extents[0],
+	nh_require(shape_a.extents[1] == shape_b.extents[0],
 		"matmul inner dimensions must match: (%d, %d) x (%d, %d)",
 		shape_a.extents[0], shape_a.extents[1], shape_b.extents[0], shape_b.extents[1]);
 
@@ -55,9 +53,9 @@ Halide::Func matmul(Halide::Func a, const shape_t& shape_a, Halide::Func b, cons
 
 /// @brief Infer output shape for matmul
 inline shape_t infer_matmul(const shape_t& a, const shape_t& b) {
-	nh_require(nullptr, a.rank == 2 && b.rank == 2,
+	nh_require(a.rank == 2 && b.rank == 2,
 		"matmul requires 2D matrices, got ranks %d and %d", a.rank, b.rank);
-	nh_require(nullptr, a.extents[1] == b.extents[0],
+	nh_require(a.extents[1] == b.extents[0],
 		"matmul inner dimensions must match: (%d, %d) x (%d, %d)",
 		a.extents[0], a.extents[1], b.extents[0], b.extents[1]);
 
@@ -82,9 +80,9 @@ Halide::Func batched_matmul(Halide::Func a, const shape_t& shape_a, Halide::Func
 	bool a_is_batched = (shape_a.rank == 3);
 	bool b_is_batched = (shape_b.rank == 3);
 
-	nh_require(nullptr, shape_a.rank >= 2 && shape_a.rank <= 3,
+	nh_require(shape_a.rank >= 2 && shape_a.rank <= 3,
 		"batched_matmul requires 2D or 3D input, got rank %d", shape_a.rank);
-	nh_require(nullptr, shape_b.rank >= 2 && shape_b.rank <= 3,
+	nh_require(shape_b.rank >= 2 && shape_b.rank <= 3,
 		"batched_matmul requires 2D or 3D input, got rank %d", shape_b.rank);
 
 	int batch = 1;
@@ -101,7 +99,7 @@ Halide::Func batched_matmul(Halide::Func a, const shape_t& shape_a, Halide::Func
 
 	if (b_is_batched) {
 		if (a_is_batched) {
-			nh_require(nullptr, shape_b.extents[0] == batch,
+			nh_require(shape_b.extents[0] == batch,
 				"Batch dimensions must match: %d vs %d", batch, shape_b.extents[0]);
 		} else {
 			batch = shape_b.extents[0];
@@ -113,7 +111,7 @@ Halide::Func batched_matmul(Halide::Func a, const shape_t& shape_a, Halide::Func
 		N = shape_b.extents[1];
 	}
 
-	nh_require(nullptr, K_a == K_b,
+	nh_require(K_a == K_b,
 		"Inner dimensions must match: %d vs %d", K_a, K_b);
 
 	int K = K_a;
@@ -162,7 +160,7 @@ inline shape_t infer_batched_matmul(const shape_t& a, const shape_t& b) {
 
 	if (b_is_batched) {
 		if (a_is_batched) {
-			nh_require(nullptr, b.extents[0] == batch, "Batch dimensions must match");
+			nh_require(b.extents[0] == batch, "Batch dimensions must match");
 		} else {
 			batch = b.extents[0];
 		}
@@ -173,7 +171,7 @@ inline shape_t infer_batched_matmul(const shape_t& a, const shape_t& b) {
 		N = b.extents[1];
 	}
 
-	nh_require(nullptr, K_a == K_b, "Inner dimensions must match");
+	nh_require(K_a == K_b, "Inner dimensions must match");
 
 	return shape_t{ batch, M, N };
 }
@@ -196,9 +194,9 @@ inline shape_t infer_batched_matmul(const shape_t& a, const shape_t& b) {
 inline
 Halide::Func dot(Halide::Func a, const shape_t& shape_a, Halide::Func b, const shape_t& shape_b, std::string const& name = "dot")
 {
-	nh_require(nullptr, shape_a.rank == 1 && shape_b.rank == 1,
+	nh_require(shape_a.rank == 1 && shape_b.rank == 1,
 		"dot requires 1D vectors, got ranks %d and %d", shape_a.rank, shape_b.rank);
-	nh_require(nullptr, shape_a.extents[0] == shape_b.extents[0],
+	nh_require(shape_a.extents[0] == shape_b.extents[0],
 		"dot requires same length vectors: %d vs %d", shape_a.extents[0], shape_b.extents[0]);
 
 	int N = shape_a.extents[0];
@@ -223,9 +221,9 @@ Halide::Func dot(Halide::Func a, const shape_t& shape_a, Halide::Func b, const s
 inline
 Halide::Func dot(Halide::Func a, const shape_t& shape_a, Halide::Func b, const shape_t& shape_b, int /*dummy*/, std::string const& name = "dot_vm")
 {
-	nh_require(nullptr, shape_a.rank == 1 && shape_b.rank == 2,
+	nh_require(shape_a.rank == 1 && shape_b.rank == 2,
 		"dot requires 1D vector and 2D matrix, got ranks %d and %d", shape_a.rank, shape_b.rank);
-	nh_require(nullptr, shape_a.extents[0] == shape_b.extents[0],
+	nh_require(shape_a.extents[0] == shape_b.extents[0],
 		"dot: vector length must match matrix rows: %d vs %d", shape_a.extents[0], shape_b.extents[0]);
 
 	int N = shape_a.extents[0];
@@ -262,7 +260,7 @@ Halide::Func dot(Halide::Func a, const shape_t& shape_a, Halide::Func b, const s
 inline
 Halide::Func outer(Halide::Func a, const shape_t& shape_a, Halide::Func b, const shape_t& shape_b, std::string const& name = "outer")
 {
-	nh_require(nullptr, shape_a.rank == 1 && shape_b.rank == 1,
+	nh_require(shape_a.rank == 1 && shape_b.rank == 1,
 		"outer requires 1D vectors, got ranks %d and %d", shape_a.rank, shape_b.rank);
 
 	Halide::Func ret(name);
@@ -278,7 +276,7 @@ Halide::Func outer(Halide::Func a, const shape_t& shape_a, Halide::Func b, const
 
 /// @brief Infer output shape for outer product
 inline shape_t infer_outer(const shape_t& a, const shape_t& b) {
-	nh_require(nullptr, a.rank == 1 && b.rank == 1,
+	nh_require(a.rank == 1 && b.rank == 1,
 		"outer requires 1D vectors, got ranks %d and %d", a.rank, b.rank);
 	return shape_t{ a.extents[0], b.extents[0] };
 }
@@ -297,12 +295,11 @@ inline shape_t infer_outer(const shape_t& a, const shape_t& b) {
 inline
 Halide::Func matvec(Halide::Func mat, const shape_t& shape_mat, Halide::Func vec, const shape_t& shape_vec, std::string const& name = "matvec")
 {
-	nh_require(nullptr, shape_mat.rank == 2 && shape_vec.rank == 1,
+	nh_require(shape_mat.rank == 2 && shape_vec.rank == 1,
 		"matvec requires 2D matrix and 1D vector, got ranks %d and %d", shape_mat.rank, shape_vec.rank);
-	nh_require(nullptr, shape_mat.extents[1] == shape_vec.extents[0],
+	nh_require(shape_mat.extents[1] == shape_vec.extents[0],
 		"matvec: matrix columns must match vector length: %d vs %d", shape_mat.extents[1], shape_vec.extents[0]);
 
-	int M = shape_mat.extents[0];
 	int N = shape_mat.extents[1];
 
 	Halide::Func ret(name);
@@ -321,9 +318,9 @@ Halide::Func matvec(Halide::Func mat, const shape_t& shape_mat, Halide::Func vec
 
 /// @brief Infer output shape for matvec
 inline shape_t infer_matvec(const shape_t& mat, const shape_t& vec) {
-	nh_require(nullptr, mat.rank == 2 && vec.rank == 1,
+	nh_require(mat.rank == 2 && vec.rank == 1,
 		"matvec requires 2D matrix and 1D vector");
-	nh_require(nullptr, mat.extents[1] == vec.extents[0],
+	nh_require(mat.extents[1] == vec.extents[0],
 		"matvec: matrix columns must match vector length");
 	return shape_t{ mat.extents[0] };
 }
@@ -340,9 +337,9 @@ inline shape_t infer_matvec(const shape_t& mat, const shape_t& vec) {
 inline
 Halide::Func trace(Halide::Func mat, const shape_t& shape_mat, std::string const& name = "trace")
 {
-	nh_require(nullptr, shape_mat.rank == 2,
+	nh_require(shape_mat.rank == 2,
 		"trace requires 2D matrix, got rank %d", shape_mat.rank);
-	nh_require(nullptr, shape_mat.extents[0] == shape_mat.extents[1],
+	nh_require(shape_mat.extents[0] == shape_mat.extents[1],
 		"trace requires square matrix, got %dx%d", shape_mat.extents[0], shape_mat.extents[1]);
 
 	int N = shape_mat.extents[0];
@@ -365,7 +362,7 @@ Halide::Func trace(Halide::Func mat, const shape_t& shape_mat, std::string const
 inline
 Halide::Func diag(Halide::Func mat, const shape_t& shape_mat, std::string const& name = "diag")
 {
-	nh_require(nullptr, shape_mat.rank == 2,
+	nh_require(shape_mat.rank == 2,
 		"diag requires 2D matrix, got rank %d", shape_mat.rank);
 
 	Halide::Func ret(name);
@@ -385,7 +382,7 @@ Halide::Func diag(Halide::Func mat, const shape_t& shape_mat, std::string const&
 inline
 Halide::Func diag_matrix(Halide::Func vec, const shape_t& shape_vec, std::string const& name = "diag_matrix")
 {
-	nh_require(nullptr, shape_vec.rank == 1,
+	nh_require(shape_vec.rank == 1,
 		"diag_matrix requires 1D vector, got rank %d", shape_vec.rank);
 
 	Halide::Func ret(name);
@@ -398,14 +395,14 @@ Halide::Func diag_matrix(Halide::Func vec, const shape_t& shape_vec, std::string
 
 /// @brief Infer output shape for diag
 inline shape_t infer_diag(const shape_t& mat) {
-	nh_require(nullptr, mat.rank == 2, "diag requires 2D matrix");
+	nh_require(mat.rank == 2, "diag requires 2D matrix");
 	int min_dim = std::min(mat.extents[0], mat.extents[1]);
 	return shape_t{ min_dim };
 }
 
 /// @brief Infer output shape for diag_matrix
 inline shape_t infer_diag_matrix(const shape_t& vec) {
-	nh_require(nullptr, vec.rank == 1, "diag_matrix requires 1D vector");
+	nh_require(vec.rank == 1, "diag_matrix requires 1D vector");
 	return shape_t{ vec.extents[0], vec.extents[0] };
 }
 
@@ -421,7 +418,7 @@ inline shape_t infer_diag_matrix(const shape_t& vec) {
 inline
 Halide::Func norm(Halide::Func vec, const shape_t& shape_vec, std::string const& name = "norm")
 {
-	nh_require(nullptr, shape_vec.rank == 1,
+	nh_require(shape_vec.rank == 1,
 		"vector norm requires 1D input, got rank %d", shape_vec.rank);
 
 	int N = shape_vec.extents[0];
@@ -447,7 +444,7 @@ Halide::Func norm(Halide::Func vec, const shape_t& shape_vec, std::string const&
 inline
 Halide::Func frobenius_norm(Halide::Func mat, const shape_t& shape_mat, std::string const& name = "frobenius_norm")
 {
-	nh_require(nullptr, shape_mat.rank == 2,
+	nh_require(shape_mat.rank == 2,
 		"frobenius_norm requires 2D matrix, got rank %d", shape_mat.rank);
 
 	int M = shape_mat.extents[0];
@@ -521,7 +518,7 @@ Halide::Func norm(Halide::Func f, const shape_t& in_shape, int axis, std::string
 inline
 Halide::Func triu(Halide::Func mat, const shape_t& shape_mat, int k = 0, std::string const& name = "triu")
 {
-	nh_require(nullptr, shape_mat.rank == 2,
+	nh_require(shape_mat.rank == 2,
 		"triu requires 2D matrix, got rank %d", shape_mat.rank);
 
 	Halide::Func ret(name);
@@ -543,7 +540,7 @@ Halide::Func triu(Halide::Func mat, const shape_t& shape_mat, int k = 0, std::st
 inline
 Halide::Func tril(Halide::Func mat, const shape_t& shape_mat, int k = 0, std::string const& name = "tril")
 {
-	nh_require(nullptr, shape_mat.rank == 2,
+	nh_require(shape_mat.rank == 2,
 		"tril requires 2D matrix, got rank %d", shape_mat.rank);
 
 	Halide::Func ret(name);
@@ -665,10 +662,9 @@ Halide::Func kron(Halide::Func a, const shape_t& shape_a,
     Halide::Func b, const shape_t& shape_b,
     std::string const& name = "kron")
 {
-    nh_require(nullptr, shape_a.rank == 2 && shape_b.rank == 2,
+    nh_require(shape_a.rank == 2 && shape_b.rank == 2,
         "kron requires 2D matrices");
 
-    int Ma = shape_a.extents[0], Na = shape_a.extents[1];
     int Mb = shape_b.extents[0], Nb = shape_b.extents[1];
 
     Halide::Func ret(name);
@@ -686,7 +682,7 @@ Halide::Func kron(Halide::Func a, const shape_t& shape_a,
 
 /// @brief Output shape for kron
 inline shape_t infer_kron(const shape_t& a, const shape_t& b) {
-    nh_require(nullptr, a.rank == 2 && b.rank == 2, "kron requires 2D matrices");
+    nh_require(a.rank == 2 && b.rank == 2, "kron requires 2D matrices");
     return shape_t{a.extents[0] * b.extents[0], a.extents[1] * b.extents[1]};
 }
 
@@ -703,11 +699,10 @@ inline
 Halide::Func matrix_power(Halide::Func a, const shape_t& shape_a, int p,
     std::string const& name = "matrix_power")
 {
-    nh_require(nullptr, shape_a.rank == 2 && shape_a.extents[0] == shape_a.extents[1],
+    nh_require(shape_a.rank == 2 && shape_a.extents[0] == shape_a.extents[1],
         "matrix_power requires square matrix");
-    nh_require(nullptr, p >= 0, "matrix_power requires non-negative exponent");
+    nh_require(p >= 0, "matrix_power requires non-negative exponent");
 
-    int N = shape_a.extents[0];
     Halide::Type type = a.types()[0];
 
     if (p == 0) {
@@ -784,7 +779,7 @@ Halide::Func tensordot(Halide::Func a, const shape_t& shape_a,
     }
 
     // axes=1: contract innermost shape dim of a with outermost shape dim of b
-    nh_require(nullptr, axes == 1, "tensordot: only axes=0 or axes=1 supported");
+    nh_require(axes == 1, "tensordot: only axes=0 or axes=1 supported");
     int K = shape_a.extents[ra - 1]; // = shape_b.extents[0]
     int out_rank = ra + rb - 2;
 
@@ -835,7 +830,7 @@ Halide::Func normalize(Halide::Func f, const shape_t& shape, int axis = -1,
 {
     int rank = shape.rank;
     int norm_axis = (axis < 0) ? (rank + axis) : axis;
-    nh_require(nullptr, norm_axis >= 0 && norm_axis < rank, "normalize: axis out of range");
+    nh_require(norm_axis >= 0 && norm_axis < rank, "normalize: axis out of range");
 
     int halide_norm_dim = rank - 1 - norm_axis; // Halide dim for shape axis norm_axis
     int K = shape.extents[norm_axis];           // size along the normalized axis
@@ -1081,7 +1076,7 @@ struct QRResult {
 inline
 QRResult qr_gs(Halide::Func A, int m, int n, std::string const& name = "qr")
 {
-    nh_require(nullptr, m >= n, "qr_gs: requires m >= n, got m=%d n=%d", m, n);
+    nh_require(m >= n, "qr_gs: requires m >= n, got m=%d n=%d", m, n);
 
     Halide::Var col("col"), row("row");
 
@@ -1501,7 +1496,7 @@ inline Halide::Func solve(Halide::Func A, Halide::Func b, int n,
 inline Halide::Func lstsq(Halide::Func A, Halide::Func b, int m, int n,
     std::string const& name = "lstsq")
 {
-    nh_require(nullptr, m >= n, "lstsq: requires m >= n, got m=%d n=%d", m, n);
+    nh_require(m >= n, "lstsq: requires m >= n, got m=%d n=%d", m, n);
 
     auto [Q, R] = qr_gs(A, m, n, name + "_qr");
     Q.compute_root();

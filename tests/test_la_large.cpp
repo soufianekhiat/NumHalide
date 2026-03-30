@@ -393,3 +393,66 @@ TEST(LALarge, Cholesky_TriangularCheck_n8)
             EXPECT_NEAR(Lm[i][j], 0.0f, 1e-5f)
                 << "L[row=" << i << ", col=" << j << "] != 0 (upper triangle)";
 }
+
+// =============================================================================
+// Additional reconstruction tests
+// =============================================================================
+
+/// 13. SVD_Reconstruction_n4: SVD of a 4×4 PD matrix; verify ||A - U*S*Vt||_F < 0.1.
+///     Uses make_pd_matrix (symmetric positive-definite) rather than make_general_matrix.
+TEST(LALarge, SVD_Reconstruction_n4)
+{
+    const int m = 4, n = 4;
+    auto A = make_pd_matrix(n, 4.0f, "svd_pd4a");
+    auto [U, S, Vt] = svd_large(A, m, n, -1, "svd_pd4");
+
+    auto Um  = realize_mat(U,  m, n);
+    auto Vtm = realize_mat(Vt, n, n);
+
+    Halide::Runtime::Buffer<float> sb(n);
+    S.realize(sb);
+
+    // Build diag(S) as n×n
+    std::vector<std::vector<float>> Dm(n, std::vector<float>(n, 0.0f));
+    for (int i = 0; i < n; ++i)
+        Dm[i][i] = sb(i);
+
+    // Reconstruct: U * D * Vt
+    auto UD   = matmul_cpu(Um,  m, n, Dm,  n, n);
+    auto UDVt = matmul_cpu(UD,  m, n, Vtm, n, n);
+
+    Halide::Runtime::Buffer<float> ab(n, m);
+    A.realize(ab);
+
+    std::vector<std::vector<float>> diff(m, std::vector<float>(n));
+    for (int i = 0; i < m; ++i)
+        for (int j = 0; j < n; ++j)
+            diff[i][j] = UDVt[i][j] - ab(j, i);
+
+    float err = frobenius(diff, m, n);
+    EXPECT_LT(err, 0.1f) << "||A - U*S*Vt||_F = " << err;
+}
+
+/// 14. QR_Reconstruction_n8: QR of a well-conditioned 8×8 matrix; verify ||A - Q*R||_F < 0.01.
+///     Uses make_conditioned_matrix for a diagonally-dominant input.
+TEST(LALarge, QR_Reconstruction_n8)
+{
+    const int m = 8, n = 8;
+    auto A = make_conditioned_matrix(n, "qr_cond8a");
+    auto [Q, R] = qr_large(A, m, n, "qr_cond8");
+
+    auto Qm = realize_mat(Q, m, n);
+    auto Rm = realize_mat(R, n, n);
+    auto QR = matmul_cpu(Qm, m, n, Rm, n, n);
+
+    Halide::Runtime::Buffer<float> ab(n, m);
+    A.realize(ab);
+
+    std::vector<std::vector<float>> diff(m, std::vector<float>(n));
+    for (int i = 0; i < m; ++i)
+        for (int j = 0; j < n; ++j)
+            diff[i][j] = QR[i][j] - ab(j, i);
+
+    float err = frobenius(diff, m, n);
+    EXPECT_LT(err, 0.01f) << "||A - Q*R||_F = " << err;
+}

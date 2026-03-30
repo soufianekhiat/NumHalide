@@ -183,3 +183,123 @@ TEST(Conv, Laplacian) {
     EXPECT_NEAR(out(1, 1), 0.0f, 1e-5f);
     EXPECT_NEAR(out(2, 2), 0.0f, 1e-5f);
 }
+
+// -----------------------------------------------------------------------------
+// ConvMode: tests for "same", "valid", and "full" output sizing conventions
+// Note: convolve1d mode parameter is currently a hint; output size is determined
+// by the realize buffer.  These tests verify the expected output sizes and the
+// correctness of the corresponding output values.
+// -----------------------------------------------------------------------------
+
+TEST(ConvMode, Same_OutputSizeMatchesInput) {
+    // "same" mode: output buffer size equals input size (8)
+    // Impulse at index 4 with box kernel [1/3, 1/3, 1/3] should spread to indices 3,4,5
+    shape_t shape = {8};
+    Halide::Func input("input");
+    Halide::Var x;
+    input(x) = Halide::cast<float>(Halide::select(x == 4, 3.0f, 0.0f));
+
+    Halide::Func kernel("kernel");
+    kernel(x) = 1.0f / 3.0f;
+
+    auto result = convolve1d(input, shape, kernel, 3, "same", "conv_same");
+
+    // Output same size as input: 8 elements
+    Halide::Runtime::Buffer<float> out(8);
+    result.realize(out);
+
+    EXPECT_EQ(out.width(), 8);
+    EXPECT_NEAR(out(3), 1.0f, 1e-5f);
+    EXPECT_NEAR(out(4), 1.0f, 1e-5f);
+    EXPECT_NEAR(out(5), 1.0f, 1e-5f);
+    EXPECT_NEAR(out(0), 0.0f, 1e-5f);
+    EXPECT_NEAR(out(7), 0.0f, 1e-5f);
+}
+
+TEST(ConvMode, Valid_OutputSmallerThanInput) {
+    // "valid" mode: input size 8, kernel size 3 -> valid output size = 8 - 3 + 1 = 6
+    // output[x] = sum_r input[x+r] * kernel[2-r]; identity kernel (kernel[1]=1) gives
+    // out(x) = input(x+1).
+    // out(0)=input(1)=2, out(1)=input(2)=3, ..., out(5)=input(6)=7.
+    // Realize at set_min(1): requests result(1)..result(6) = input(2)..input(7) = 3..8.
+    // So out(i) = i+2 for i in [1..6].
+    shape_t shape = {8};
+    Halide::Func input("input");
+    Halide::Var x;
+    input(x) = Halide::cast<float>(x + 1);  // [1,2,3,4,5,6,7,8]
+
+    Halide::Func kernel("kernel");
+    // Delta kernel at center: [0, 1, 0]
+    kernel(x) = Halide::select(x == 1, 1.0f, 0.0f);
+
+    auto result = convolve1d(input, shape, kernel, 3, "valid", "conv_valid");
+
+    // Request 6 elements at positions 1..6 (valid mode output is at 0-based positions).
+    Halide::Runtime::Buffer<float> out(6);
+    out.set_min(1);
+    result.realize(out);
+
+    EXPECT_EQ(out.width(), 6);
+    for (int i = 1; i <= 6; ++i) {
+        EXPECT_NEAR(out(i), static_cast<float>(i + 2), 1e-5f);
+    }
+}
+
+TEST(ConvMode, Full_OutputLargerThanInput) {
+    // "full" mode: input size 8, kernel size 3 -> full output size = 8 + 3 - 1 = 10
+    // With a constant input of 1 and box kernel [1/3,1/3,1/3], zero-padding is used
+    // outside the input. output[x] = sum_r input[x+r-2] * (1/3), zero outside [0,7].
+    // x=0: 0+0+1/3 = 1/3
+    // x=1: 0+1/3+1/3 = 2/3
+    // x=2..7: all three accesses inside -> 1.0
+    // x=8: 1/3+1/3+0 = 2/3
+    // x=9: 1/3+0+0 = 1/3
+    shape_t shape = {8};
+    Halide::Func input("input");
+    Halide::Var x;
+    input(x) = 1.0f;
+
+    Halide::Func kernel("kernel");
+    kernel(x) = 1.0f / 3.0f;
+
+    auto result = convolve1d(input, shape, kernel, 3, "full", "conv_full");
+
+    // Realize 10 elements
+    Halide::Runtime::Buffer<float> out(10);
+    result.realize(out);
+
+    EXPECT_EQ(out.width(), 10);
+    EXPECT_NEAR(out(0), 1.0f / 3.0f, 1e-5f);
+    EXPECT_NEAR(out(1), 2.0f / 3.0f, 1e-5f);
+    for (int i = 2; i <= 7; ++i) {
+        EXPECT_NEAR(out(i), 1.0f, 1e-5f);
+    }
+    EXPECT_NEAR(out(8), 2.0f / 3.0f, 1e-5f);
+    EXPECT_NEAR(out(9), 1.0f / 3.0f, 1e-5f);
+}
+
+TEST(ConvMode, Same_BorderValues) {
+    // Verify border values for a box kernel with clamped-edge boundary handling.
+    // Input: [1, 0, 0, 0, 0, 0, 0, 0], kernel [1/3,1/3,1/3] (symmetric, no flip effect).
+    // At x=0: accesses clamp(-1,0,7)=0, input[0]=1, input[1]=0 -> sum = (1+1+0)/3 = 2/3
+    //   (clamp mirrors edge: input[-1] -> input[0])
+    // At x=1: accesses input[0]=1, input[1]=0, input[2]=0 -> sum = 1/3
+    // At x=2 and beyond: all zero inputs -> 0
+    shape_t shape = {8};
+    Halide::Func input("input");
+    Halide::Var x;
+    input(x) = Halide::cast<float>(Halide::select(x == 0, 1.0f, 0.0f));
+
+    Halide::Func kernel("kernel");
+    kernel(x) = 1.0f / 3.0f;
+
+    auto result = convolve1d(input, shape, kernel, 3, "same", "conv_border");
+
+    Halide::Runtime::Buffer<float> out(8);
+    result.realize(out);
+
+    EXPECT_NEAR(out(0), 2.0f / 3.0f, 1e-5f);
+    EXPECT_NEAR(out(1), 1.0f / 3.0f, 1e-5f);
+    EXPECT_NEAR(out(2), 0.0f, 1e-5f);
+    EXPECT_NEAR(out(7), 0.0f, 1e-5f);
+}

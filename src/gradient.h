@@ -27,7 +27,7 @@ NS_NUM_HALIDE_BEGIN
 inline
 Halide::Func gradient_1d(Halide::Func f, const shape_t& shape, int axis = 0, std::string const& name = "gradient")
 {
-	nh_require(nullptr, shape.rank >= 1 && shape.rank <= 2,
+	nh_require(shape.rank >= 1 && shape.rank <= 2,
 		"gradient_1d requires 1D or 2D input, got rank %d", shape.rank);
 
 	int norm_axis = normalized_axis(axis, shape.rank);
@@ -75,7 +75,7 @@ Halide::Func gradient_1d(Halide::Func f, const shape_t& shape, int axis = 0, std
 inline
 std::pair<Halide::Func, Halide::Func> gradient_2d(Halide::Func f, const shape_t& shape, std::string const& name = "gradient2d")
 {
-	nh_require(nullptr, shape.rank == 2, "gradient_2d requires 2D input, got rank %d", shape.rank);
+	nh_require(shape.rank == 2, "gradient_2d requires 2D input, got rank %d", shape.rank);
 
 	auto grad_x = gradient_1d(f, shape, 1, name + "_x");
 	auto grad_y = gradient_1d(f, shape, 0, name + "_y");
@@ -97,7 +97,7 @@ std::pair<Halide::Func, Halide::Func> gradient_2d(Halide::Func f, const shape_t&
 inline
 Halide::Func laplacian(Halide::Func f, const shape_t& shape, std::string const& name = "laplacian")
 {
-	nh_require(nullptr, shape.rank == 2, "laplacian requires 2D input, got rank %d", shape.rank);
+	nh_require(shape.rank == 2, "laplacian requires 2D input, got rank %d", shape.rank);
 
 	int rows = shape.extents[0];
 	int cols = shape.extents[1];
@@ -128,7 +128,7 @@ Halide::Func laplacian(Halide::Func f, const shape_t& shape, std::string const& 
 inline
 Halide::Func divergence(Halide::Func fx, Halide::Func fy, const shape_t& shape, std::string const& name = "divergence")
 {
-	nh_require(nullptr, shape.rank == 2, "divergence requires 2D input, got rank %d", shape.rank);
+	nh_require(shape.rank == 2, "divergence requires 2D input, got rank %d", shape.rank);
 
 	// dfx/dx: gradient of fx along x (axis=1)
 	auto gx = gradient_1d(fx, shape, 1, name + "_dfdx");

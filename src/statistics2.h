@@ -34,10 +34,10 @@ inline
 Halide::Func percentile(Halide::Func f, int n, float q,
                         std::string const& name = "percentile")
 {
-    nh_require(nullptr, n > 0, "percentile: array must have at least 1 element");
-    nh_require(nullptr, (n & (n - 1)) == 0,
+    nh_require(n > 0, "percentile: array must have at least 1 element");
+    nh_require((n & (n - 1)) == 0,
         "percentile: size must be a power of 2 for bitonic sort, got %d", n);
-    nh_require(nullptr, q >= 0.0f && q <= 100.0f,
+    nh_require(q >= 0.0f && q <= 100.0f,
         "percentile: q must be in [0.0, 100.0], got %f", (double)q);
 
     Halide::Func sorted = bitonic_sort(f, n, name + "_sorted");
@@ -74,7 +74,7 @@ inline
 Halide::Func quantile(Halide::Func f, int n, float q,
                       std::string const& name = "quantile")
 {
-    nh_require(nullptr, q >= 0.0f && q <= 1.0f,
+    nh_require(q >= 0.0f && q <= 1.0f,
         "quantile: q must be in [0.0, 1.0], got %f", (double)q);
     return percentile(f, n, q * 100.0f, name);
 }
@@ -96,7 +96,7 @@ inline
 Halide::Func cov(Halide::Func a, Halide::Func b, int n, int ddof = 1,
                  std::string const& name = "cov")
 {
-    nh_require(nullptr, n > ddof, "cov: n must be > ddof");
+    nh_require(n > ddof, "cov: n must be > ddof");
 
     Halide::Var x;
     Halide::RDom r(0, n);
@@ -143,7 +143,7 @@ inline
 Halide::Func corrcoef(Halide::Func a, Halide::Func b, int n,
                       std::string const& name = "corrcoef")
 {
-    nh_require(nullptr, n > 1, "corrcoef: n must be > 1 for sample statistics");
+    nh_require(n > 1, "corrcoef: n must be > 1 for sample statistics");
 
     Halide::Var x;
     Halide::RDom r(0, n);
@@ -209,9 +209,9 @@ Halide::Func histogram2d(
     Halide::Expr y_min, Halide::Expr y_max,
     std::string const& name = "histogram2d")
 {
-    nh_require(nullptr, n > 0,      "histogram2d: n must be > 0");
-    nh_require(nullptr, x_bins > 0, "histogram2d: x_bins must be > 0");
-    nh_require(nullptr, y_bins > 0, "histogram2d: y_bins must be > 0");
+    nh_require(n > 0,      "histogram2d: n must be > 0");
+    nh_require(x_bins > 0, "histogram2d: x_bins must be > 0");
+    nh_require(y_bins > 0, "histogram2d: y_bins must be > 0");
 
     Halide::Func ret(name);
     Halide::Var bx("bx"), by("by");
@@ -253,8 +253,8 @@ inline
 Halide::Func bincount(Halide::Func f, int n, int out_size,
                       std::string const& name = "bincount")
 {
-    nh_require(nullptr, n > 0,        "bincount: n must be > 0");
-    nh_require(nullptr, out_size > 0, "bincount: out_size must be > 0");
+    nh_require(n > 0,        "bincount: n must be > 0");
+    nh_require(out_size > 0, "bincount: out_size must be > 0");
 
     Halide::Func ret(name);
     Halide::Var bin("bin");

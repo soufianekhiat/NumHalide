@@ -107,8 +107,8 @@ inline Halide::Tuple complex_scale(Halide::Tuple z, Halide::Expr s) {
 inline
 Halide::Func fft_1d_c2c(Halide::Func input, int N, int sign, std::string const& name = "fft1d")
 {
-    nh_require(nullptr, (N & (N - 1)) == 0, "FFT requires power of 2 size, got %d", N);
-    nh_require(nullptr, sign == -1 || sign == 1, "FFT sign must be -1 or +1");
+    nh_require((N & (N - 1)) == 0, "FFT requires power of 2 size, got %d", N);
+    nh_require(sign == -1 || sign == 1, "FFT sign must be -1 or +1");
 
     const float pi = static_cast<float>(M_PI);
 
@@ -192,8 +192,8 @@ inline
 Halide::Func fft_2d_c2c(Halide::Func input, int rows, int cols, int sign,
                          std::string const& name = "fft2d")
 {
-    nh_require(nullptr, (rows & (rows - 1)) == 0, "FFT requires power of 2 rows, got %d", rows);
-    nh_require(nullptr, (cols & (cols - 1)) == 0, "FFT requires power of 2 cols, got %d", cols);
+    nh_require((rows & (rows - 1)) == 0, "FFT requires power of 2 rows, got %d", rows);
+    nh_require((cols & (cols - 1)) == 0, "FFT requires power of 2 cols, got %d", cols);
 
     const float pi = static_cast<float>(M_PI);
 

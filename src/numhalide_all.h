@@ -57,3 +57,4 @@
 #include "view.h"
 #include "complex_type.h"
 #include "autodiff.h"
+#include "autodiff_tensor.h"

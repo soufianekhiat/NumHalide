@@ -28,7 +28,7 @@ Halide::Func stencil_apply(Halide::Func f, const shape_t& shape,
                             Halide::Func weights, Halide::Func offsets_x, Halide::Func offsets_y,
                             int n_points, std::string const& name = "stencil")
 {
-	nh_require(nullptr, shape.rank == 2, "stencil_apply requires 2D input");
+	nh_require(shape.rank == 2, "stencil_apply requires 2D input");
 	int rows = shape.extents[0];
 	int cols = shape.extents[1];
 
@@ -56,7 +56,7 @@ Halide::Func stencil_apply(Halide::Func f, const shape_t& shape,
 inline
 Halide::Func jacobi_step(Halide::Func f, const shape_t& shape, std::string const& name = "jacobi")
 {
-	nh_require(nullptr, shape.rank == 2, "jacobi requires 2D");
+	nh_require(shape.rank == 2, "jacobi requires 2D");
 	int rows = shape.extents[0];
 	int cols = shape.extents[1];
 
@@ -86,7 +86,7 @@ Halide::Func jacobi_step(Halide::Func f, const shape_t& shape, std::string const
 inline
 Halide::Func heat_diffusion_step(Halide::Func f, const shape_t& shape, float dt = 0.1f, float alpha = 1.0f, std::string const& name = "heat")
 {
-	nh_require(nullptr, shape.rank == 2, "heat requires 2D");
+	nh_require(shape.rank == 2, "heat requires 2D");
 	int rows = shape.extents[0];
 	int cols = shape.extents[1];
 

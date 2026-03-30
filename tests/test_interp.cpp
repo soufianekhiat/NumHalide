@@ -204,3 +204,105 @@ TEST(Interp, MapCoordinatesSwirl) {
     // Center should be approximately unchanged
     EXPECT_NEAR(out(4, 4), 4.0f, 0.5f);
 }
+
+// -----------------------------------------------------------------------------
+// InterpExt: extended interpolation accuracy and boundary tests
+// -----------------------------------------------------------------------------
+
+TEST(InterpExt, BilinearSubpixelAccuracy) {
+    // 2x2 image with values [[1,2],[3,4]] (input(x,y) = y*2+x+1)
+    // resized to 3x3: center output pixel (1,1) maps to input coordinate (0.5, 0.5)
+    // Bilinear: (1+2+3+4)*0.25 = 2.5
+    shape_t shape = {2, 2};
+    Halide::Func input("input");
+    Halide::Var x, y;
+    input(x, y) = Halide::cast<float>(y * 2 + x + 1);  // [[1,2],[3,4]]
+
+    auto result = resize_bilinear(input, shape, 3, 3, "bilinear_sub");
+
+    Halide::Runtime::Buffer<float> out(3, 3);
+    result.realize(out);
+
+    // Center: bilinear average of all four corners = (1+2+3+4)/4 = 2.5
+    EXPECT_NEAR(out(1, 1), 2.5f, 1e-5f);
+    // Corners should match input corners exactly
+    EXPECT_NEAR(out(0, 0), 1.0f, 1e-5f);
+    EXPECT_NEAR(out(2, 0), 2.0f, 1e-5f);
+    EXPECT_NEAR(out(0, 2), 3.0f, 1e-5f);
+    EXPECT_NEAR(out(2, 2), 4.0f, 1e-5f);
+}
+
+TEST(InterpExt, NearestBoundaryClamp) {
+    // 2x2 image upscaled 2x via nearest neighbor.  scale = 2/4 = 0.5.
+    // out(0,*): round(0*0.5)=0 -> input col 0.
+    // out(3,*): round(3*0.5)=round(1.5)=2 -> clamp(2,0,1)=1 -> input col 1.
+    // So edge output pixels should equal the corresponding input edge pixels.
+    shape_t shape = {2, 2};
+    Halide::Func input("input");
+    Halide::Var x, y;
+    input(x, y) = Halide::cast<float>(y * 2 + x + 1);  // [[1,2],[3,4]]
+
+    auto result = resize_nearest(input, shape, 4, 4, "nearest_boundary");
+
+    Halide::Runtime::Buffer<float> out(4, 4);
+    result.realize(out);
+
+    // Top-left corner: should map to input(0,0) = 1
+    EXPECT_NEAR(out(0, 0), 1.0f, 1e-5f);
+    // Top-right corner (x=3): clamp gives input(1,0) = 2
+    EXPECT_NEAR(out(3, 0), 2.0f, 1e-5f);
+    // Bottom-left corner (y=3): clamp gives input(0,1) = 3
+    EXPECT_NEAR(out(0, 3), 3.0f, 1e-5f);
+    // Bottom-right corner: clamp gives input(1,1) = 4
+    EXPECT_NEAR(out(3, 3), 4.0f, 1e-5f);
+}
+
+TEST(InterpExt, MapCoordinatesBoundary) {
+    // Sample a 4x4 image at exact corner coordinates (0,0) and (3,3).
+    // With integer coordinates, bilinear reduces to exact lookup.
+    shape_t shape = {4, 4};
+    Halide::Func input("input");
+    Halide::Var x, y;
+    input(x, y) = Halide::cast<float>(y * 4 + x);  // 0..15
+
+    // coords_x(0,0)=0, coords_y(0,0)=0  -> should give input(0,0) = 0
+    // coords_x(3,3)=3, coords_y(3,3)=3  -> should give input(3,3) = 15
+    // coords_x(3,0)=3, coords_y(3,0)=0  -> should give input(3,0) = 3
+    // coords_x(0,3)=0, coords_y(0,3)=3  -> should give input(0,3) = 12
+    Halide::Func coords_x("cx"), coords_y("cy");
+    coords_x(x, y) = Halide::cast<float>(x);
+    coords_y(x, y) = Halide::cast<float>(y);
+
+    auto result = map_coordinates(input, shape, coords_x, coords_y, "map_boundary");
+
+    Halide::Runtime::Buffer<float> out(4, 4);
+    result.realize(out);
+
+    EXPECT_NEAR(out(0, 0), 0.0f, 1e-5f);
+    EXPECT_NEAR(out(3, 0), 3.0f, 1e-5f);
+    EXPECT_NEAR(out(0, 3), 12.0f, 1e-5f);
+    EXPECT_NEAR(out(3, 3), 15.0f, 1e-5f);
+}
+
+TEST(InterpExt, ZoomUpPreservesCorners) {
+    // Zoom a 4x4 image by 2x -> 8x8 output via resize_bilinear.
+    // scale = (4-1)/(8-1) = 3/7; corner output pixels map exactly to corner input pixels.
+    shape_t shape = {4, 4};
+    Halide::Func input("input");
+    Halide::Var x, y;
+    input(x, y) = Halide::cast<float>(y * 4 + x);  // 0..15
+
+    auto result = zoom(input, shape, 2.0f, "zoom_corners");
+
+    Halide::Runtime::Buffer<float> out(8, 8);
+    result.realize(out);
+
+    // Corner (0,0) -> input(0,0) = 0
+    EXPECT_NEAR(out(0, 0), 0.0f, 1e-5f);
+    // Corner (7,0) -> input(3,0) = 3
+    EXPECT_NEAR(out(7, 0), 3.0f, 1e-4f);
+    // Corner (0,7) -> input(0,3) = 12
+    EXPECT_NEAR(out(0, 7), 12.0f, 1e-4f);
+    // Corner (7,7) -> input(3,3) = 15
+    EXPECT_NEAR(out(7, 7), 15.0f, 1e-4f);
+}

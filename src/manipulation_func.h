@@ -79,7 +79,7 @@ inline
 Halide::Func concat(Halide::Func a, const shape_t& shape_a, Halide::Func b, const shape_t& shape_b, int axis, std::string const& name = "concat")
 {
     int norm_axis = normalized_axis(axis, shape_a.rank);
-    nh_require(nullptr, check_same_except(shape_a, shape_b, norm_axis),
+    nh_require(check_same_except(shape_a, shape_b, norm_axis),
         "Shapes %s and %s mismatch for concat at axis %d",
         shape_to_string(shape_a).c_str(), shape_to_string(shape_b).c_str(), axis);
 
@@ -119,7 +119,7 @@ inline
 Halide::Func vstack(Halide::Func a, const shape_t& shape_a, Halide::Func b, const shape_t& shape_b, std::string const& name = "vstack")
 {
     if (shape_a.rank == 1 && shape_b.rank == 1) {
-        nh_require(nullptr, shape_a.extents[0] == shape_b.extents[0],
+        nh_require(shape_a.extents[0] == shape_b.extents[0],
             "Shapes %s and %s mismatch for vstack (dim 1 must match)",
             shape_to_string(shape_a).c_str(), shape_to_string(shape_b).c_str());
         Halide::Func ret(name);
@@ -138,7 +138,7 @@ Halide::Func hstack(Halide::Func a, const shape_t& shape_a, Halide::Func b, cons
     // Special case for 2D arrays: stack horizontally (columns)
     if (shape_a.rank == 2 && shape_b.rank == 2 && shape_a.extents[0] == shape_b.extents[0]) {
         // Ensure same number of rows
-        nh_require(nullptr, shape_a.extents[0] == shape_b.extents[0],
+        nh_require(shape_a.extents[0] == shape_b.extents[0],
             "Shapes %s and %s mismatch for hstack (rows must match)",
             shape_to_string(shape_a).c_str(), shape_to_string(shape_b).c_str());
         Halide::Func ret(name);
@@ -189,7 +189,7 @@ Halide::Func slice(Halide::Func f, const shape_t& in_shape, int axis, int start,
 	start = std::max(0, std::min(start, extent));
 	stop = std::max(0, std::min(stop, extent));
 
-	nh_require(nullptr, step != 0, "Slice step cannot be zero");
+	nh_require(step != 0, "Slice step cannot be zero");
 
 	Halide::Func ret(name);
 	std::vector<Halide::Var> out_vars;
@@ -236,7 +236,7 @@ Halide::Func take(Halide::Func f, const shape_t& in_shape, const std::vector<int
 	// Validate indices
 	for (int idx : indices) {
 		int norm_idx = idx < 0 ? idx + extent : idx;
-		nh_require(nullptr, norm_idx >= 0 && norm_idx < extent,
+		nh_require(norm_idx >= 0 && norm_idx < extent,
 			"Index %d out of bounds for axis %d with size %d", idx, axis, extent);
 	}
 
@@ -297,7 +297,7 @@ inline shape_t infer_take(const shape_t& in, int axis, int n_indices) {
 inline
 Halide::Func transpose(Halide::Func f, const shape_t& in_shape, const std::vector<int>& axes, std::string const& name = "transpose")
 {
-	nh_require(nullptr, static_cast<int>(axes.size()) == in_shape.rank,
+	nh_require(static_cast<int>(axes.size()) == in_shape.rank,
 		"Transpose axes length %d does not match rank %d",
 		static_cast<int>(axes.size()), in_shape.rank);
 
@@ -306,7 +306,7 @@ Halide::Func transpose(Halide::Func f, const shape_t& in_shape, const std::vecto
 	std::vector<bool> seen(in_shape.rank, false);
 	for (int ax : axes) {
 		int norm = normalized_axis(ax, in_shape.rank);
-		nh_require(nullptr, !seen[norm], "Duplicate axis %d in transpose", ax);
+		nh_require(!seen[norm], "Duplicate axis %d in transpose", ax);
 		seen[norm] = true;
 		norm_axes.push_back(norm);
 	}
@@ -348,7 +348,7 @@ Halide::Func transpose(Halide::Func f, const shape_t& in_shape, const std::vecto
 inline
 Halide::Func transpose(Halide::Func f, const shape_t& in_shape, std::string const& name = "transpose")
 {
-	nh_require(nullptr, in_shape.rank == 2, "2D transpose requires rank 2, got %d", in_shape.rank);
+	nh_require(in_shape.rank == 2, "2D transpose requires rank 2, got %d", in_shape.rank);
 	return transpose(f, in_shape, {1, 0}, name);
 }
 
@@ -391,7 +391,7 @@ Halide::Func expand_dims(Halide::Func f, const shape_t& in_shape, int axis, std:
 {
 	int new_rank = in_shape.rank + 1;
 	int norm_axis = axis < 0 ? axis + new_rank : axis;
-	nh_require(nullptr, norm_axis >= 0 && norm_axis <= in_shape.rank,
+	nh_require(norm_axis >= 0 && norm_axis <= in_shape.rank,
 		"Axis %d out of bounds for expand_dims with rank %d", axis, in_shape.rank);
 
 	Halide::Func ret(name);
@@ -454,7 +454,7 @@ Halide::Func squeeze(Halide::Func f, const shape_t& in_shape, int axis = -1, std
 		}
 	} else {
 		int norm_axis = normalized_axis(axis, in_shape.rank);
-		nh_require(nullptr, in_shape.extents[norm_axis] == 1,
+		nh_require(in_shape.extents[norm_axis] == 1,
 			"Cannot squeeze axis %d with size %d (must be 1)",
 			axis, in_shape.extents[norm_axis]);
 		for (int i = 0; i < in_shape.rank; ++i) {
@@ -591,7 +591,7 @@ Halide::Func flipud(Halide::Func f, const shape_t& in_shape, std::string const& 
 inline
 Halide::Func fliplr(Halide::Func f, const shape_t& in_shape, std::string const& name = "fliplr")
 {
-	nh_require(nullptr, in_shape.rank >= 2, "fliplr requires rank >= 2, got %d", in_shape.rank);
+	nh_require(in_shape.rank >= 2, "fliplr requires rank >= 2, got %d", in_shape.rank);
 	return flip(f, in_shape, 1, name);
 }
 
@@ -604,7 +604,7 @@ Halide::Func fliplr(Halide::Func f, const shape_t& in_shape, std::string const& 
 inline
 Halide::Func rot90(Halide::Func f, const shape_t& in_shape, int k = 1, std::string const& name = "rot90")
 {
-	nh_require(nullptr, in_shape.rank == 2, "rot90 requires rank 2, got %d", in_shape.rank);
+	nh_require(in_shape.rank == 2, "rot90 requires rank 2, got %d", in_shape.rank);
 
 	// Normalize k to 0, 1, 2, or 3
 	k = ((k % 4) + 4) % 4;
@@ -712,7 +712,7 @@ Halide::Func roll(Halide::Func f, const shape_t& in_shape, int shift, int axis, 
 inline
 Halide::Func tile(Halide::Func f, const shape_t& in_shape, const std::vector<int>& reps, std::string const& name = "tile")
 {
-	nh_require(nullptr, static_cast<int>(reps.size()) == in_shape.rank,
+	nh_require(static_cast<int>(reps.size()) == in_shape.rank,
 		"Tile reps length %d does not match rank %d",
 		static_cast<int>(reps.size()), in_shape.rank);
 
@@ -808,7 +808,7 @@ Halide::Func pad(Halide::Func f, const shape_t& in_shape,
                  float constant_value = 0.0f,
                  std::string const& name = "pad")
 {
-	nh_require(nullptr, static_cast<int>(pad_width.size()) == in_shape.rank,
+	nh_require(static_cast<int>(pad_width.size()) == in_shape.rank,
 		"Pad width length %d does not match rank %d",
 		static_cast<int>(pad_width.size()), in_shape.rank);
 
@@ -826,7 +826,6 @@ Halide::Func pad(Halide::Func f, const shape_t& in_shape,
 		int var_idx = in_shape.rank - 1 - shape_dim;
 		int extent = in_shape.extents[shape_dim];
 		int pad_before = pad_width[shape_dim].first;
-		int pad_after = pad_width[shape_dim].second;
 
 		Halide::Expr idx = vars[var_idx] - pad_before;
 		Halide::Expr is_in = (idx >= 0) && (idx < extent);
@@ -925,11 +924,11 @@ Halide::Func swapaxes(Halide::Func f, const shape_t& in_shape, int axis1, int ax
 /// Equivalent to np.column_stack for 1D inputs.
 /// Output shape: {n_rows, k} where k = arrays.size()
 inline
-Halide::Func column_stack(const std::vector<Halide::Func>& arrays, int n_rows,
+Halide::Func column_stack(const std::vector<Halide::Func>& arrays, int /*n_rows*/,
     std::string const& name = "column_stack")
 {
     int k = static_cast<int>(arrays.size());
-    nh_require(nullptr, k > 0, "column_stack requires at least one array");
+    nh_require(k > 0, "column_stack requires at least one array");
 
     Halide::Func ret(name);
     Halide::Var col("col"), row("row");
@@ -953,12 +952,12 @@ Halide::Func column_stack(const std::vector<Halide::Func>& arrays, int n_rows,
 /// ret(col, row) where row selects the array and col the element.
 inline
 Halide::Func row_stack(const std::vector<Halide::Func>& arrays,
-    const std::vector<shape_t>& shapes,
+    const std::vector<shape_t>& /*shapes*/,
     std::string const& name = "row_stack")
 {
     // For 1D arrays: each becomes a single row
     int k = static_cast<int>(arrays.size());
-    nh_require(nullptr, k > 0, "row_stack requires at least one array");
+    nh_require(k > 0, "row_stack requires at least one array");
 
     Halide::Func ret(name);
     Halide::Var col("col"), row("row");

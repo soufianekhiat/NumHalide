@@ -48,24 +48,52 @@ inline std::vector<std::string> split_str(const std::string& s, char delim) {
     return parts;
 }
 
-/// Parse subscript string "lhs->output".
+/// Parse subscript string "lhs->output" or implicit "lhs" (no "->").
 /// Returns {input_subs, output_sub}.
 /// input_subs has 1 or 2 elements (split by ',').
+/// If "->" is absent, the output is inferred:
+///   - 1-input: sorted unique chars appearing an odd number of times
+///   - 2-input: sorted unique chars that appear in exactly one of the two input subscripts (XOR)
 inline void parse_subscripts(const std::string& subscripts,
                               std::vector<std::string>& input_subs,
                               std::string& output_sub)
 {
     auto arrow_pos = subscripts.find("->");
-    nh_require(nullptr, arrow_pos != std::string::npos,
-        "einsum: subscripts must contain '->', got: %s", subscripts.c_str());
+    if (arrow_pos == std::string::npos) {
+        // Implicit output notation: infer output subscript
+        input_subs = split_str(subscripts, ',');
+        nh_require(input_subs.size() == 1u || input_subs.size() == 2u,
+            "einsum: only 1- or 2-input forms supported, got %d inputs (subscript: %s)",
+            (int)input_subs.size(), subscripts.c_str());
+
+        if (input_subs.size() == 1u) {
+            // 1-input: output = sorted unique chars appearing an odd number of times
+            std::map<char, int> counts;
+            for (char c : input_subs[0]) counts[c]++;
+            output_sub.clear();
+            for (auto& kv : counts) {
+                if (kv.second % 2 != 0) output_sub += kv.first;
+            }
+            // already sorted (map iterates in order)
+        } else {
+            // 2-input: output = sorted unique chars in exactly one of the two inputs (XOR)
+            std::set<char> in_a(input_subs[0].begin(), input_subs[0].end());
+            std::set<char> in_b(input_subs[1].begin(), input_subs[1].end());
+            output_sub.clear();
+            for (char c : in_a) { if (!in_b.count(c)) output_sub += c; }
+            for (char c : in_b) { if (!in_a.count(c)) output_sub += c; }
+            std::sort(output_sub.begin(), output_sub.end());
+        }
+        return;
+    }
 
     std::string lhs = subscripts.substr(0, arrow_pos);
     output_sub = subscripts.substr(arrow_pos + 2);
     input_subs = split_str(lhs, ',');
 
-    nh_require(nullptr, input_subs.size() == 1u || input_subs.size() == 2u,
-        "einsum: only 1- or 2-input forms supported, got %d inputs",
-        (int)input_subs.size());
+    nh_require(input_subs.size() == 1u || input_subs.size() == 2u,
+        "einsum: only 1- or 2-input forms supported, got %d inputs (subscript: %s)",
+        (int)input_subs.size(), subscripts.c_str());
 }
 
 /// Build extent map from input subscript + shape.
@@ -73,15 +101,15 @@ inline void parse_subscripts(const std::string& subscripts,
 inline void build_extent_map(const std::string& sub, const shape_t& shape,
                               std::map<char, int>& extent_map)
 {
-    nh_require(nullptr, (int)sub.size() == shape.rank,
-        "einsum: subscript length %d does not match shape rank %d",
-        (int)sub.size(), shape.rank);
+    nh_require((int)sub.size() == shape.rank,
+        "einsum: subscript '%s' length %d does not match shape rank %d",
+        sub.c_str(), (int)sub.size(), shape.rank);
     for (int p = 0; p < (int)sub.size(); ++p) {
         char letter = sub[p];
         int ext = shape.extents[p];
         auto it = extent_map.find(letter);
         if (it != extent_map.end()) {
-            nh_require(nullptr, it->second == ext,
+            nh_require(it->second == ext,
                 "einsum: conflicting extents for letter '%c': %d vs %d",
                 letter, it->second, ext);
         } else {
@@ -103,7 +131,7 @@ inline shape_t infer_einsum1(const std::string& subscripts, const shape_t& shape
     std::string output_sub;
     einsum_detail::parse_subscripts(subscripts, input_subs, output_sub);
 
-    nh_require(nullptr, input_subs.size() == 1u,
+    nh_require(input_subs.size() == 1u,
         "infer_einsum1: expected 1-input subscript, got %d", (int)input_subs.size());
 
     std::map<char, int> extent_map;
@@ -116,7 +144,7 @@ inline shape_t infer_einsum1(const std::string& subscripts, const shape_t& shape
 
     std::vector<int> out_extents;
     for (char c : output_sub) {
-        nh_require(nullptr, extent_map.count(c),
+        nh_require(extent_map.count(c),
             "infer_einsum1: output letter '%c' not found in input subscripts", c);
         out_extents.push_back(extent_map.at(c));
     }
@@ -135,7 +163,7 @@ inline shape_t infer_einsum(const std::string& subscripts,
     std::string output_sub;
     einsum_detail::parse_subscripts(subscripts, input_subs, output_sub);
 
-    nh_require(nullptr, input_subs.size() == 2u,
+    nh_require(input_subs.size() == 2u,
         "infer_einsum: expected 2-input subscript, got %d", (int)input_subs.size());
 
     std::map<char, int> extent_map;
@@ -148,7 +176,7 @@ inline shape_t infer_einsum(const std::string& subscripts,
 
     std::vector<int> out_extents;
     for (char c : output_sub) {
-        nh_require(nullptr, extent_map.count(c),
+        nh_require(extent_map.count(c),
             "infer_einsum: output letter '%c' not found in input subscripts", c);
         out_extents.push_back(extent_map.at(c));
     }
@@ -176,12 +204,12 @@ inline Halide::Func einsum(const std::string& subscripts,
     std::string output_sub;
     parse_subscripts(subscripts, input_subs, output_sub);
 
-    nh_require(nullptr, input_subs.size() == 1u,
+    nh_require(input_subs.size() == 1u,
         "einsum (1-input): subscript must have exactly 1 input, got %d",
         (int)input_subs.size());
 
     const std::string& sub_A = input_subs[0];
-    nh_require(nullptr, (int)sub_A.size() == shape_A.rank,
+    nh_require((int)sub_A.size() == shape_A.rank,
         "einsum (1-input): subscript A length %d != shape rank %d",
         (int)sub_A.size(), shape_A.rank);
 
@@ -309,17 +337,17 @@ inline Halide::Func einsum(const std::string& subscripts,
     std::string output_sub;
     parse_subscripts(subscripts, input_subs, output_sub);
 
-    nh_require(nullptr, input_subs.size() == 2u,
+    nh_require(input_subs.size() == 2u,
         "einsum (2-input): subscript must have exactly 2 inputs, got %d",
         (int)input_subs.size());
 
     const std::string& sub_A = input_subs[0];
     const std::string& sub_B = input_subs[1];
 
-    nh_require(nullptr, (int)sub_A.size() == shape_A.rank,
+    nh_require((int)sub_A.size() == shape_A.rank,
         "einsum: subscript A length %d != shape_A rank %d",
         (int)sub_A.size(), shape_A.rank);
-    nh_require(nullptr, (int)sub_B.size() == shape_B.rank,
+    nh_require((int)sub_B.size() == shape_B.rank,
         "einsum: subscript B length %d != shape_B rank %d",
         (int)sub_B.size(), shape_B.rank);
 

@@ -109,7 +109,7 @@ inline
 BatchedQRResult batched_qr_gs(Halide::Func A, int m, int n, int batch,
     std::string const& name = "batched_qr")
 {
-    nh_require(nullptr, m >= n, "batched_qr_gs: requires m >= n, got m=%d n=%d", m, n);
+    nh_require(m >= n, "batched_qr_gs: requires m >= n, got m=%d n=%d", m, n);
 
     Halide::Var col("col"), row("row"), b("b");
 

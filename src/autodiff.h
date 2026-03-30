@@ -48,6 +48,8 @@ inline void dtape_reset() {
     _dgrads.clear();
 }
 
+// Note: for tensor (vector/matrix) autodiff, use autodiff_tensor.h (TVar, Tensor, tmatmul, etc.)
+
 // =============================================================================
 // DVar — differentiable variable
 // =============================================================================

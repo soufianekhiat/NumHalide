@@ -23,8 +23,8 @@ NS_NUM_HALIDE_BEGIN
 inline
 Halide::Func dilate(Halide::Func f, const shape_t& shape, int kernel_size, std::string const& name = "dilate")
 {
-	nh_require(nullptr, shape.rank == 2, "dilate requires 2D input, got rank %d", shape.rank);
-	nh_require(nullptr, kernel_size > 0 && (kernel_size % 2) == 1,
+	nh_require(shape.rank == 2, "dilate requires 2D input, got rank %d", shape.rank);
+	nh_require(kernel_size > 0 && (kernel_size % 2) == 1,
 		"dilate requires odd positive kernel_size, got %d", kernel_size);
 
 	int rows = shape.extents[0];
@@ -58,8 +58,8 @@ Halide::Func dilate(Halide::Func f, const shape_t& shape, int kernel_size, std::
 inline
 Halide::Func erode(Halide::Func f, const shape_t& shape, int kernel_size, std::string const& name = "erode")
 {
-	nh_require(nullptr, shape.rank == 2, "erode requires 2D input, got rank %d", shape.rank);
-	nh_require(nullptr, kernel_size > 0 && (kernel_size % 2) == 1,
+	nh_require(shape.rank == 2, "erode requires 2D input, got rank %d", shape.rank);
+	nh_require(kernel_size > 0 && (kernel_size % 2) == 1,
 		"erode requires odd positive kernel_size, got %d", kernel_size);
 
 	int rows = shape.extents[0];
@@ -119,7 +119,7 @@ Halide::Func morph_close(Halide::Func f, const shape_t& shape, int kernel_size, 
 inline
 Halide::Func morph_gradient(Halide::Func f, const shape_t& shape, int kernel_size, std::string const& name = "morph_gradient")
 {
-	nh_require(nullptr, shape.rank == 2, "morph_gradient requires 2D input, got rank %d", shape.rank);
+	nh_require(shape.rank == 2, "morph_gradient requires 2D input, got rank %d", shape.rank);
 
 	auto dilated = dilate(f, shape, kernel_size, name + "_dilate");
 	auto eroded = erode(f, shape, kernel_size, name + "_erode");
@@ -141,7 +141,7 @@ Halide::Func morph_gradient(Halide::Func f, const shape_t& shape, int kernel_siz
 inline
 Halide::Func top_hat(Halide::Func f, const shape_t& shape, int kernel_size, std::string const& name = "top_hat")
 {
-	nh_require(nullptr, shape.rank == 2, "top_hat requires 2D input, got rank %d", shape.rank);
+	nh_require(shape.rank == 2, "top_hat requires 2D input, got rank %d", shape.rank);
 
 	auto opened = morph_open(f, shape, kernel_size, name + "_open");
 

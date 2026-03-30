@@ -16,6 +16,21 @@
 NS_NUM_HALIDE_BEGIN
 
 // -----------------------------------------------------------------------------
+// Power-of-2 Utilities
+// -----------------------------------------------------------------------------
+
+/// @brief Check if n is a power of 2
+inline bool is_power_of_2(int n) { return n > 0 && (n & (n - 1)) == 0; }
+
+/// @brief Return smallest power of 2 >= n
+inline int next_power_of_2(int n) {
+    if (n <= 1) return 1;
+    int p = 1;
+    while (p < n) p <<= 1;
+    return p;
+}
+
+// -----------------------------------------------------------------------------
 // Unique Elements
 // -----------------------------------------------------------------------------
 
@@ -28,7 +43,7 @@ NS_NUM_HALIDE_BEGIN
 /// Usage: Sort first with bitonic_sort, then use this to identify unique elements.
 /// The output marks the first occurrence of each value with 1, duplicates with 0.
 inline
-Halide::Func mark_unique(Halide::Func sorted_input, int size, std::string const& name = "mark_unique")
+Halide::Func mark_unique(Halide::Func sorted_input, int /*size*/, std::string const& name = "mark_unique")
 {
     Halide::Func ret(name);
     Halide::Var x("x");
@@ -74,7 +89,7 @@ Halide::Func count_unique(Halide::Func sorted_input, int size, std::string const
 inline
 Halide::Func unique(Halide::Func input, int size, std::string const& name = "unique")
 {
-    nh_require(nullptr, (size & (size - 1)) == 0, "unique requires power of 2 size, got %d", size);
+    nh_require((size & (size - 1)) == 0, "unique requires power of 2 size, got %d", size);
 
     // First, sort the input
     auto sorted = bitonic_sort(input, size, name + "_sorted");
@@ -128,7 +143,7 @@ Halide::Func unique(Halide::Func input, int size, std::string const& name = "uni
 /// Note: Uses linear search. For large arrays, consider using binary search.
 inline
 Halide::Func in1d(Halide::Func test_values, Halide::Func sorted_array,
-                  int test_size, int array_size,
+                  int /*test_size*/, int array_size,
                   std::string const& name = "in1d")
 {
     Halide::Func ret(name);
@@ -275,6 +290,12 @@ Halide::Func intersect1d(Halide::Func a, Halide::Func b,
                           int size_a, int size_b,
                           std::string const& name = "intersect1d")
 {
+    nh_require(is_power_of_2(size_a),
+        "intersect1d: size_a must be a power of 2, got %d (next valid size: %d)",
+        size_a, next_power_of_2(size_a));
+    nh_require(is_power_of_2(size_b),
+        "intersect1d: size_b must be a power of 2, got %d (next valid size: %d)",
+        size_b, next_power_of_2(size_b));
     auto sorted_a = bitonic_sort(a, size_a, name + "_sorted_a");
     auto sorted_b = bitonic_sort(b, size_b, name + "_sorted_b");
     sorted_a.compute_root();
@@ -295,6 +316,12 @@ Halide::Func setdiff1d(Halide::Func a, Halide::Func b,
                         int size_a, int size_b,
                         std::string const& name = "setdiff1d")
 {
+    nh_require(is_power_of_2(size_a),
+        "setdiff1d: size_a must be a power of 2, got %d (next valid size: %d)",
+        size_a, next_power_of_2(size_a));
+    nh_require(is_power_of_2(size_b),
+        "setdiff1d: size_b must be a power of 2, got %d (next valid size: %d)",
+        size_b, next_power_of_2(size_b));
     auto sorted_a = bitonic_sort(a, size_a, name + "_sorted_a");
     auto sorted_b = bitonic_sort(b, size_b, name + "_sorted_b");
     sorted_a.compute_root();
@@ -315,6 +342,12 @@ Halide::Func union1d(Halide::Func a, Halide::Func b,
                       int size_a, int size_b,
                       std::string const& name = "union1d")
 {
+    nh_require(is_power_of_2(size_a),
+        "union1d: size_a must be a power of 2, got %d (next valid size: %d)",
+        size_a, next_power_of_2(size_a));
+    nh_require(is_power_of_2(size_b),
+        "union1d: size_b must be a power of 2, got %d (next valid size: %d)",
+        size_b, next_power_of_2(size_b));
     auto sorted_a = bitonic_sort(a, size_a, name + "_sorted_a");
     auto sorted_b = bitonic_sort(b, size_b, name + "_sorted_b");
     sorted_a.compute_root();

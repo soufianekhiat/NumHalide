@@ -37,8 +37,8 @@ std::vector<Halide::Func> split(Halide::Func f, const shape_t& shape, int axis, 
 	int norm_axis = normalized_axis(axis, shape.rank);
 	int extent = shape.extents[norm_axis];
 
-	nh_require(nullptr, n_sections > 0, "split: n_sections must be > 0");
-	nh_require(nullptr, extent % n_sections == 0,
+	nh_require(n_sections > 0, "split: n_sections must be > 0");
+	nh_require(extent % n_sections == 0,
 		"split: extent %d along axis %d is not evenly divisible by %d sections",
 		extent, axis, n_sections);
 
@@ -76,7 +76,7 @@ std::vector<Halide::Func> split(Halide::Func f, const shape_t& shape, int axis, 
 			}
 		}
 		else {
-			nh_require(nullptr, false,
+			nh_require(false,
 				"split: rank %d not yet supported (max 3D)", shape.rank);
 		}
 
@@ -110,7 +110,7 @@ std::vector<Halide::Func> split_at(Halide::Func f, const shape_t& shape, int axi
                                     const std::vector<int>& indices,
                                     std::string const& name = "split_at")
 {
-	nh_require(nullptr, shape.rank == 1, "split_at currently supports 1D arrays only");
+	nh_require(shape.rank == 1, "split_at currently supports 1D arrays only");
 	int norm_axis = normalized_axis(axis, shape.rank);
 	int extent = shape.extents[norm_axis];
 
@@ -118,7 +118,7 @@ std::vector<Halide::Func> split_at(Halide::Func f, const shape_t& shape, int axi
 	std::vector<int> boundaries;
 	boundaries.push_back(0);
 	for (int idx : indices) {
-		nh_require(nullptr, idx >= 0 && idx <= extent,
+		nh_require(idx >= 0 && idx <= extent,
 			"split_at: index %d out of range [0, %d]", idx, extent);
 		boundaries.push_back(idx);
 	}
@@ -156,7 +156,7 @@ inline
 std::vector<Halide::Func> hsplit(Halide::Func f, const shape_t& shape, int n_sections,
                                  std::string const& name = "hsplit")
 {
-	nh_require(nullptr, shape.rank >= 2,
+	nh_require(shape.rank >= 2,
 		"hsplit: input must be at least 2D, got rank %d", shape.rank);
 	return split(f, shape, 1, n_sections, name);
 }

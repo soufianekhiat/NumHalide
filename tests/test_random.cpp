@@ -225,9 +225,9 @@ TEST(Like, ZerosLike) {
 	Halide::Runtime::Buffer<float> out(s.extents[1], s.extents[0]);
 	result.realize(out);
 
-	for (int y = 0; y < s.extents[0]; ++y) {
-		for (int x = 0; x < s.extents[1]; ++x) {
-			EXPECT_EQ(out(x, y), 0.0f);
+	for (int iy = 0; iy < s.extents[0]; ++iy) {
+		for (int ix = 0; ix < s.extents[1]; ++ix) {
+			EXPECT_EQ(out(ix, iy), 0.0f);
 		}
 	}
 }
@@ -243,9 +243,9 @@ TEST(Like, OnesLike) {
 	Halide::Runtime::Buffer<float> out(s.extents[1], s.extents[0]);
 	result.realize(out);
 
-	for (int y = 0; y < s.extents[0]; ++y) {
-		for (int x = 0; x < s.extents[1]; ++x) {
-			EXPECT_EQ(out(x, y), 1.0f);
+	for (int iy = 0; iy < s.extents[0]; ++iy) {
+		for (int ix = 0; ix < s.extents[1]; ++ix) {
+			EXPECT_EQ(out(ix, iy), 1.0f);
 		}
 	}
 }
@@ -262,9 +262,9 @@ TEST(Like, FullLike) {
 	Halide::Runtime::Buffer<float> out(s.extents[1], s.extents[0]);
 	result.realize(out);
 
-	for (int y = 0; y < s.extents[0]; ++y) {
-		for (int x = 0; x < s.extents[1]; ++x) {
-			EXPECT_EQ(out(x, y), fill_value);
+	for (int iy = 0; iy < s.extents[0]; ++iy) {
+		for (int ix = 0; ix < s.extents[1]; ++ix) {
+			EXPECT_EQ(out(ix, iy), fill_value);
 		}
 	}
 }

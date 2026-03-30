@@ -298,3 +298,104 @@ TEST(Broadcast, OuterProductViaMul) {
         for (int col = 0; col < 4; ++col)
             EXPECT_NEAR(out(col, row), float((row + 1) * (col + 1)), 1e-5f);
 }
+
+// -----------------------------------------------------------------------------
+// Broadcast3D — 3D tensor broadcasting
+// Shape convention: {batch, rows, cols} (outermost first)
+// Halide Func args: f(x=col, y=row, z=batch) (innermost first)
+// Buffer realize: Buffer(cols, rows, batch) -> out(col, row, batch)
+// -----------------------------------------------------------------------------
+
+// Test 13: AddScalarTo3D — {2,3,2} + {1,1,1} scalar broadcast
+TEST(Broadcast3D, AddScalarTo3D) {
+    // A(x,y,z) = z*6 + y*2 + x   (batch=2, rows=3, cols=2)
+    // scalar(x,y,z) = 10.0f        (shape {1,1,1})
+    Halide::Func A("A_as3d"), sc("sc_as3d");
+    Halide::Var x("x"), y("y"), z("z");
+    A(x, y, z)  = Halide::cast<float>(z * 6 + y * 2 + x);
+    sc(x, y, z) = 10.0f;
+
+    auto result = add(A, {2, 3, 2}, sc, {1, 1, 1}, "add_scalar_3d");
+    Halide::Runtime::Buffer<float> out(2, 3, 2);  // Buffer(cols, rows, batch)
+    result.realize(out);
+
+    // out(col, row, batch) = batch*6 + row*2 + col + 10
+    for (int b = 0; b < 2; ++b)
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 2; ++c)
+                EXPECT_NEAR(out(c, r, b), float(b * 6 + r * 2 + c) + 10.0f, 1e-5f)
+                    << "(" << c << "," << r << "," << b << ")";
+}
+
+// Test 14: AddVectorTo3D — {2,3,2} + {2} last-dim broadcast
+TEST(Broadcast3D, AddVectorTo3D) {
+    // A(x,y,z) = z*6 + y*2 + x   (batch=2, rows=3, cols=2)
+    // vec(x) = x + 1               (shape {2}: 1D, last dim only)
+    // Broadcasting: {2} -> {1,1,2} -> {2,3,2}
+    // out(col, row, batch) = A + (col+1)
+    Halide::Func A("A_av3d"), vec("vec_av3d");
+    Halide::Var x("x"), y("y"), z("z");
+    A(x, y, z) = Halide::cast<float>(z * 6 + y * 2 + x);
+    vec(x)     = Halide::cast<float>(x + 1);  // shape {2}
+
+    auto result = add(A, {2, 3, 2}, vec, {2}, "add_vec_3d");
+    Halide::Runtime::Buffer<float> out(2, 3, 2);
+    result.realize(out);
+
+    // out(col, row, batch) = (batch*6 + row*2 + col) + (col+1)
+    for (int b = 0; b < 2; ++b)
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 2; ++c)
+                EXPECT_NEAR(out(c, r, b),
+                            float(b * 6 + r * 2 + c) + float(c + 1), 1e-5f)
+                    << "(" << c << "," << r << "," << b << ")";
+}
+
+// Test 15: MulMatrixTo3D — {4,3,2} * {3,2} batch-broadcast (last two dims)
+TEST(Broadcast3D, MulMatrixTo3D) {
+    // A(x,y,z) = z*6 + y*2 + x + 1   (batch=4, rows=3, cols=2)
+    // M(x,y) = y*2 + x + 1            (shape {3,2}: rows=3, cols=2)
+    // Broadcasting: {3,2} -> {1,3,2} -> {4,3,2}
+    // out(col, row, batch) = A * M = (batch*6 + row*2 + col + 1) * (row*2 + col + 1)
+    Halide::Func A("A_mm3d"), M("M_mm3d");
+    Halide::Var x("x"), y("y"), z("z");
+    A(x, y, z) = Halide::cast<float>(z * 6 + y * 2 + x + 1);
+    M(x, y)    = Halide::cast<float>(y * 2 + x + 1);  // shape {3,2}
+
+    auto result = mul(A, {4, 3, 2}, M, {3, 2}, "mul_mat_3d");
+    Halide::Runtime::Buffer<float> out(2, 3, 4);  // Buffer(cols, rows, batch)
+    result.realize(out);
+
+    for (int b = 0; b < 4; ++b)
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 2; ++c) {
+                float a_val = float(b * 6 + r * 2 + c + 1);
+                float m_val = float(r * 2 + c + 1);
+                EXPECT_NEAR(out(c, r, b), a_val * m_val, 1e-5f)
+                    << "(" << c << "," << r << "," << b << ")";
+            }
+}
+
+// Test 16: SubAxisBroadcast — {2,3,4} - {1,3,1} (middle axis only matches)
+TEST(Broadcast3D, SubAxisBroadcast) {
+    // A(x,y,z) = z*12 + y*4 + x   (batch=2, rows=3, cols=4)
+    // B(x,y,z) = y * 10            (shape {1,3,1}: only row axis is non-1)
+    // Broadcasting: {1,3,1} -> {2,3,4}
+    // out(col, row, batch) = A - B = (batch*12 + row*4 + col) - row*10
+    Halide::Func A("A_sab"), B("B_sab");
+    Halide::Var x("x"), y("y"), z("z");
+    A(x, y, z) = Halide::cast<float>(z * 12 + y * 4 + x);
+    B(x, y, z) = Halide::cast<float>(y * 10);  // shape {1,3,1}
+
+    auto result = sub(A, {2, 3, 4}, B, {1, 3, 1}, "sub_axis_3d");
+    Halide::Runtime::Buffer<float> out(4, 3, 2);  // Buffer(cols, rows, batch)
+    result.realize(out);
+
+    for (int b = 0; b < 2; ++b)
+        for (int r = 0; r < 3; ++r)
+            for (int c = 0; c < 4; ++c) {
+                float expected = float(b * 12 + r * 4 + c) - float(r * 10);
+                EXPECT_NEAR(out(c, r, b), expected, 1e-5f)
+                    << "(" << c << "," << r << "," << b << ")";
+            }
+}

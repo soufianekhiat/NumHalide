@@ -193,7 +193,7 @@ Halide::Func reshape_func(Halide::Func f, const shape_t& in_shape, const shape_t
 	for (int i = 0; i < out_shape.rank; ++i) {
 		out_total *= out_shape.extents[i];
 	}
-	nh_require(nullptr, in_total == out_total,
+	nh_require(in_total == out_total,
 		"reshape: total elements must match (%d vs %d)", in_total, out_total);
 
 	// Build sizes vectors for the existing reshape function
@@ -517,7 +517,7 @@ inline
 Halide::Func choose(Halide::Func indices, const std::vector<Halide::Func>& choices,
     const shape_t& shape, std::string const& name = "choose")
 {
-    nh_require(nullptr, !choices.empty(), "choose: choices must not be empty");
+    nh_require(!choices.empty(), "choose: choices must not be empty");
     int n = (int)choices.size();
     std::vector<Halide::Var> vars;
     for (int i = 0; i < shape.rank; ++i) vars.push_back(Halide::Var());
@@ -546,8 +546,8 @@ Halide::Func piecewise(const std::vector<Halide::Func>& conditions,
     const shape_t& shape,
     std::string const& name = "piecewise")
 {
-    nh_require(nullptr, !conditions.empty(), "piecewise: no pieces");
-    nh_require(nullptr, conditions.size() == values.size(),
+    nh_require(!conditions.empty(), "piecewise: no pieces");
+    nh_require(conditions.size() == values.size(),
         "piecewise: conditions and values must have the same size");
     int n = (int)conditions.size();
     std::vector<Halide::Var> vars;

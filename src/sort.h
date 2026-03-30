@@ -1,7 +1,10 @@
 /// @file sort.h
 /// @brief Sorting and search operations
 ///
-/// Provides: argmin, argmax, searchsorted
+/// Provides: global_argmin, global_argmax, searchsorted
+///
+/// Note: argmin/argmax *along an axis* are in reduce.h. global_argmin/global_argmax
+/// here find the flat index of the single minimum/maximum in a 1D array.
 ///
 /// Note: Full sorting (sort, argsort) requires compile-time known sizes
 /// and is complex to implement efficiently in Halide. See Halide's
@@ -21,129 +24,51 @@ NS_NUM_HALIDE_BEGIN
 // Index of Extremum
 // -----------------------------------------------------------------------------
 
-/// @brief Find the index of the minimum value (1D array)
-/// @param f Input Func (1D)
+/// @brief Find the flat index of the minimum value in a 1D array.
+/// @param f       Input Func (must be 1D)
 /// @param in_shape Shape of input
-/// @param name Function name
-/// @return Func returning scalar index of minimum
+/// @param name    Function name
+/// @return 1D Func; element [0] holds the index of the minimum value.
+///
+/// For argmin *along an axis* of a multi-dimensional array, use reduce.h::argmin.
 inline
-Halide::Func argmin(Halide::Func f, const shape_t& in_shape, std::string const& name = "argmin")
+Halide::Func global_argmin(Halide::Func f, const shape_t& in_shape,
+                           std::string const& name = "global_argmin")
 {
-    nh_require(nullptr, in_shape.rank == 1, "argmin currently supports 1D arrays only");
+    nh_require(in_shape.rank == 1, "global_argmin requires a 1D array");
 
     int n = in_shape.extents[0];
 
-    Halide::Func ret(name);
     Halide::RDom r(0, n);
-
-    // Use argmin to find index of minimum
-    Halide::Expr val = f(r);
-    Halide::Tuple result = Halide::argmin(r, val);
-
-    Halide::Var idx;
-    ret(idx) = result[0];  // The index
-
-    return ret;
-}
-
-/// @brief Find the index of the minimum value along an axis (2D only)
-/// @param f Input Func
-/// @param in_shape Shape of input (must be 2D)
-/// @param axis Axis to reduce along
-/// @param name Function name
-/// @return Func with indices of minima
-inline
-Halide::Func argmin(Halide::Func f, const shape_t& in_shape, int axis, std::string const& name = "argmin")
-{
-    nh_require(nullptr, in_shape.rank == 2, "argmin with axis currently supports 2D only");
-
-    int norm_axis = normalized_axis(axis, in_shape.rank);
-    int rows = in_shape.extents[0];
-    int cols = in_shape.extents[1];
-
-    // Compute input so it can be safely read multiple times
-    f.compute_root();
+    Halide::Tuple result = Halide::argmin(r, f(r));
 
     Halide::Func ret(name);
-    Halide::Var x("x");
-
-    if (norm_axis == 0) {
-        // Reduce along rows (axis 0 = Halide dim 1 = y), output has shape (cols,)
-        Halide::RDom r(0, rows);
-        ret(x) = 0;  // Initialize to row 0
-        Halide::Expr best = f(x, Halide::clamp(ret(x), 0, rows - 1));
-        ret(x) = Halide::select(f(x, r) < best, r, ret(x));
-    } else {
-        // Reduce along cols (axis 1 = Halide dim 0 = x), output has shape (rows,)
-        Halide::RDom r(0, cols);
-        ret(x) = 0;  // Initialize to col 0
-        Halide::Expr best = f(Halide::clamp(ret(x), 0, cols - 1), x);
-        ret(x) = Halide::select(f(r, x) < best, r, ret(x));
-    }
-
-    return ret;
-}
-
-/// @brief Find the index of the maximum value (1D array)
-/// @param f Input Func (1D)
-/// @param in_shape Shape of input
-/// @param name Function name
-/// @return Func returning scalar index of maximum
-inline
-Halide::Func argmax(Halide::Func f, const shape_t& in_shape, std::string const& name = "argmax")
-{
-    nh_require(nullptr, in_shape.rank == 1, "argmax currently supports 1D arrays only");
-
-    int n = in_shape.extents[0];
-
-    Halide::Func ret(name);
-    Halide::RDom r(0, n);
-
-    // Use argmax to find index of maximum
-    Halide::Expr val = f(r);
-    Halide::Tuple result = Halide::argmax(r, val);
-
     Halide::Var idx;
     ret(idx) = result[0];
-
     return ret;
 }
 
-/// @brief Find the index of the maximum value along an axis (2D only)
-/// @param f Input Func
-/// @param in_shape Shape of input (must be 2D)
-/// @param axis Axis to reduce along
-/// @param name Function name
-/// @return Func with indices of maxima
+/// @brief Find the flat index of the maximum value in a 1D array.
+/// @param f       Input Func (must be 1D)
+/// @param in_shape Shape of input
+/// @param name    Function name
+/// @return 1D Func; element [0] holds the index of the maximum value.
+///
+/// For argmax *along an axis* of a multi-dimensional array, use reduce.h::argmax.
 inline
-Halide::Func argmax(Halide::Func f, const shape_t& in_shape, int axis, std::string const& name = "argmax")
+Halide::Func global_argmax(Halide::Func f, const shape_t& in_shape,
+                           std::string const& name = "global_argmax")
 {
-    nh_require(nullptr, in_shape.rank == 2, "argmax with axis currently supports 2D only");
+    nh_require(in_shape.rank == 1, "global_argmax requires a 1D array");
 
-    int norm_axis = normalized_axis(axis, in_shape.rank);
-    int rows = in_shape.extents[0];
-    int cols = in_shape.extents[1];
+    int n = in_shape.extents[0];
 
-    // Compute input so it can be safely read multiple times
-    f.compute_root();
+    Halide::RDom r(0, n);
+    Halide::Tuple result = Halide::argmax(r, f(r));
 
     Halide::Func ret(name);
-    Halide::Var x("x");
-
-    if (norm_axis == 0) {
-        // Reduce along rows (axis 0 = Halide dim 1 = y), output has shape (cols,)
-        Halide::RDom r(0, rows);
-        ret(x) = 0;  // Initialize to row 0
-        Halide::Expr best = f(x, Halide::clamp(ret(x), 0, rows - 1));
-        ret(x) = Halide::select(f(x, r) > best, r, ret(x));
-    } else {
-        // Reduce along cols (axis 1 = Halide dim 0 = x), output has shape (rows,)
-        Halide::RDom r(0, cols);
-        ret(x) = 0;  // Initialize to col 0
-        Halide::Expr best = f(Halide::clamp(ret(x), 0, cols - 1), x);
-        ret(x) = Halide::select(f(r, x) > best, r, ret(x));
-    }
-
+    Halide::Var idx;
+    ret(idx) = result[0];
     return ret;
 }
 
@@ -163,7 +88,7 @@ Halide::Func argmax(Halide::Func f, const shape_t& in_shape, int axis, std::stri
 /// This is equivalent to numpy.searchsorted with side='left'.
 inline
 Halide::Func searchsorted(Halide::Func sorted_array, Halide::Func values,
-                          int array_size, int values_size,
+                          int array_size, int /*values_size*/,
                           std::string const& name = "searchsorted")
 {
     Halide::Func ret(name);
@@ -244,7 +169,7 @@ inline
 Halide::Func bitonic_sort(Halide::Func input, int size, std::string const& name = "sorted")
 {
     // Verify size is power of 2
-    nh_require(nullptr, (size & (size - 1)) == 0, "bitonic_sort requires power of 2 size, got %d", size);
+    nh_require((size & (size - 1)) == 0, "bitonic_sort requires power of 2 size, got %d", size);
 
     Halide::Func next, prev = input;
     Halide::Var x("x");
@@ -293,7 +218,7 @@ Halide::Func bitonic_sort(Halide::Func input, int size, std::string const& name 
 inline
 Halide::Func bitonic_argsort(Halide::Func input, int size, std::string const& name = "argsort")
 {
-    nh_require(nullptr, (size & (size - 1)) == 0, "bitonic_argsort requires power of 2 size, got %d", size);
+    nh_require((size & (size - 1)) == 0, "bitonic_argsort requires power of 2 size, got %d", size);
 
     // Create tuples of (value, original_index)
     Halide::Func indexed("indexed");

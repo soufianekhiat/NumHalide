@@ -66,7 +66,7 @@ inline
 Halide::Func interp1d_uniform(Halide::Func values, const shape_t& in_shape,
                                float scale, std::string const& name = "interp1d_uniform")
 {
-    nh_require(nullptr, in_shape.rank == 1, "interp1d_uniform requires 1D input");
+    nh_require(in_shape.rank == 1, "interp1d_uniform requires 1D input");
 
     int n = in_shape.extents[0];
 
@@ -107,7 +107,7 @@ Halide::Func resize_bilinear(Halide::Func input, const shape_t& in_shape,
                               int out_rows, int out_cols,
                               std::string const& name = "resize")
 {
-    nh_require(nullptr, in_shape.rank == 2, "resize_bilinear requires 2D input");
+    nh_require(in_shape.rank == 2, "resize_bilinear requires 2D input");
 
     int in_rows = in_shape.extents[0];
     int in_cols = in_shape.extents[1];
@@ -152,7 +152,7 @@ Halide::Func resize_bilinear(Halide::Func input, const shape_t& in_shape,
 }
 
 /// @brief Infer output shape for resize
-inline shape_t infer_resize(const shape_t& in, int out_rows, int out_cols) {
+inline shape_t infer_resize(const shape_t& /*in*/, int out_rows, int out_cols) {
     return shape_t{out_rows, out_cols};
 }
 
@@ -172,7 +172,7 @@ Halide::Func resize_nearest(Halide::Func input, const shape_t& in_shape,
                             int out_rows, int out_cols,
                             std::string const& name = "resize_nearest")
 {
-    nh_require(nullptr, in_shape.rank == 2, "resize_nearest requires 2D input");
+    nh_require(in_shape.rank == 2, "resize_nearest requires 2D input");
 
     int in_rows = in_shape.extents[0];
     int in_cols = in_shape.extents[1];
@@ -237,7 +237,7 @@ Halide::Func map_coordinates(Halide::Func input, const shape_t& in_shape,
                               Halide::Func coords_x, Halide::Func coords_y,
                               std::string const& name = "map_coordinates")
 {
-    nh_require(nullptr, in_shape.rank == 2, "map_coordinates requires 2D input");
+    nh_require(in_shape.rank == 2, "map_coordinates requires 2D input");
 
     int rows = in_shape.extents[0];
     int cols = in_shape.extents[1];

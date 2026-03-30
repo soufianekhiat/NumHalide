@@ -15,12 +15,26 @@ NS_NUM_HALIDE_BEGIN
 // 1D Convolution
 // -----------------------------------------------------------------------------
 
+/// @brief Infer output shape for 1D convolution
+inline shape_t infer_convolve1d(const shape_t& in_shape, int kernel_size,
+                                const std::string& mode = "same") {
+    nh_require(in_shape.rank == 1, "convolve1d requires 1D input");
+    int n = in_shape.extents[0];
+    int out_n;
+    if (mode == "valid")      out_n = n - kernel_size + 1;
+    else if (mode == "full")  out_n = n + kernel_size - 1;
+    else                      out_n = n;  // "same"
+    nh_require(out_n > 0, "convolve1d: output size %d <= 0 for input=%d kernel=%d mode=%s",
+               out_n, n, kernel_size, mode.c_str());
+    return shape_t{out_n};
+}
+
 /// @brief 1D convolution
 /// @param input Input signal
 /// @param in_shape Shape of input (1D)
 /// @param kernel Convolution kernel
 /// @param kernel_size Size of kernel
-/// @param mode Padding mode: "valid", "same", "full"
+/// @param mode Padding mode: "same" (edge-clamp, output=n), "valid" (no padding, output=n-k+1), "full" (zero-pad, output=n+k-1)
 /// @param name Function name
 /// @return Convolved signal
 inline
@@ -29,26 +43,36 @@ Halide::Func convolve1d(Halide::Func input, const shape_t& in_shape,
                         const std::string& mode = "same",
                         std::string const& name = "conv1d")
 {
-    nh_require(nullptr, in_shape.rank == 1, "convolve1d requires 1D input");
+    nh_require(in_shape.rank == 1, "convolve1d requires 1D input");
+    nh_require(mode == "same" || mode == "valid" || mode == "full",
+               "convolve1d: unknown mode '%s'", mode.c_str());
 
     int n = in_shape.extents[0];
-    int half_k = kernel_size / 2;
 
     Halide::Func ret(name);
     Halide::Var x("x");
     Halide::RDom r(0, kernel_size, "r");
 
-    // Convolution flips the kernel
-    // output[x] = sum_k input[x + k - half_k] * kernel[kernel_size - 1 - k]
-    // For correlation (no flip): kernel[k]
-
-    Halide::Expr idx = x + r - half_k;
-
-    // Boundary handling
-    Halide::Expr clamped_idx = Halide::clamp(idx, 0, n - 1);
-
-    ret(x) = Halide::cast(input.types()[0], 0);
-    ret(x) += input(clamped_idx) * kernel(kernel_size - 1 - r);
+    if (mode == "valid") {
+        // No boundary handling: output[x] = sum_r input[x + r] * kernel[kernel_size - 1 - r]
+        // Valid output positions: x in [0, n - kernel_size]
+        ret(x) = Halide::cast(input.types()[0], 0);
+        ret(x) += input(x + r) * kernel(kernel_size - 1 - r);
+    } else if (mode == "full") {
+        // Zero-pad outside: output[x] = sum_r input[x + r - (kernel_size-1)] * kernel[kernel_size - 1 - r]
+        // Output positions: x in [0, n + kernel_size - 2]
+        Halide::Expr idx = x + r - (kernel_size - 1);
+        Halide::Expr val = Halide::select(idx >= 0 && idx < n, input(Halide::clamp(idx, 0, n - 1)), 0.0f);
+        ret(x) = Halide::cast(input.types()[0], 0);
+        ret(x) += val * kernel(kernel_size - 1 - r);
+    } else {
+        // "same" mode: edge-clamping, output size = n
+        int half_k = kernel_size / 2;
+        Halide::Expr idx = x + r - half_k;
+        Halide::Expr clamped_idx = Halide::clamp(idx, 0, n - 1);
+        ret(x) = Halide::cast(input.types()[0], 0);
+        ret(x) += input(clamped_idx) * kernel(kernel_size - 1 - r);
+    }
 
     return ret;
 }
@@ -70,7 +94,7 @@ Halide::Func convolve2d(Halide::Func input, const shape_t& in_shape,
                         Halide::Func kernel, int kernel_rows, int kernel_cols,
                         std::string const& name = "conv2d")
 {
-    nh_require(nullptr, in_shape.rank == 2, "convolve2d requires 2D input");
+    nh_require(in_shape.rank == 2, "convolve2d requires 2D input");
 
     int rows = in_shape.extents[0];
     int cols = in_shape.extents[1];
@@ -113,7 +137,7 @@ Halide::Func convolve2d_separable(Halide::Func input, const shape_t& in_shape,
                                    int kernel_size,
                                    std::string const& name = "conv2d_sep")
 {
-    nh_require(nullptr, in_shape.rank == 2, "convolve2d_separable requires 2D input");
+    nh_require(in_shape.rank == 2, "convolve2d_separable requires 2D input");
 
     int rows = in_shape.extents[0];
     int cols = in_shape.extents[1];
@@ -156,7 +180,7 @@ Halide::Func correlate2d(Halide::Func input, const shape_t& in_shape,
                          Halide::Func kernel, int kernel_rows, int kernel_cols,
                          std::string const& name = "corr2d")
 {
-    nh_require(nullptr, in_shape.rank == 2, "correlate2d requires 2D input");
+    nh_require(in_shape.rank == 2, "correlate2d requires 2D input");
 
     int rows = in_shape.extents[0];
     int cols = in_shape.extents[1];

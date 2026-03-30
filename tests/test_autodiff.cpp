@@ -173,3 +173,170 @@ TEST(Autodiff, Sqrt_Grad)
     EXPECT_NEAR(z.val(),  2.0f,  1e-5f);
     EXPECT_NEAR(x.grad(), 0.25f, 1e-5f);
 }
+
+// =============================================================================
+// AutodiffFiniteDiff — gradient checks via central finite differences
+//
+// For each test:
+//   analytic gradient: DVar + backward()
+//   numerical gradient: (f(x+eps) - f(x-eps)) / (2*eps), eps = 1e-3
+// =============================================================================
+
+static const float FD_EPS = 1e-3f;
+
+// 1. FD_Square: f(x) = x*x at x=3; df/dx = 2x = 6
+TEST(AutodiffFiniteDiff, FD_Square)
+{
+    const float x0 = 3.0f;
+
+    dtape_reset();
+    DVar x(x0);
+    DVar z = x * x;
+    z.backward();
+    float analytic = x.grad();
+
+    auto f = [](float t) { return t * t; };
+    float fd = (f(x0 + FD_EPS) - f(x0 - FD_EPS)) / (2.0f * FD_EPS);
+
+    EXPECT_NEAR(analytic, fd,    1e-3f);
+    EXPECT_NEAR(analytic, 6.0f, 1e-3f);
+}
+
+// 2. FD_Cube: f(x) = x*x*x at x=2; df/dx = 3x^2 = 12
+TEST(AutodiffFiniteDiff, FD_Cube)
+{
+    const float x0 = 2.0f;
+
+    dtape_reset();
+    DVar x(x0);
+    DVar z = x * x * x;
+    z.backward();
+    float analytic = x.grad();
+
+    auto f = [](float t) { return t * t * t; };
+    float fd = (f(x0 + FD_EPS) - f(x0 - FD_EPS)) / (2.0f * FD_EPS);
+
+    EXPECT_NEAR(analytic, fd,     1e-3f);
+    EXPECT_NEAR(analytic, 12.0f, 1e-3f);
+}
+
+// 3. FD_ExpX: f(x) = exp(x) at x=1; df/dx = exp(1) = e
+TEST(AutodiffFiniteDiff, FD_ExpX)
+{
+    const float x0 = 1.0f;
+
+    dtape_reset();
+    DVar x(x0);
+    DVar z = dexp(x);
+    z.backward();
+    float analytic = x.grad();
+
+    auto f = [](float t) { return std::exp(t); };
+    float fd = (f(x0 + FD_EPS) - f(x0 - FD_EPS)) / (2.0f * FD_EPS);
+
+    EXPECT_NEAR(analytic, fd,                        1e-3f);
+    EXPECT_NEAR(analytic, std::exp(1.0f),            1e-3f);
+}
+
+// 4. FD_LogX: f(x) = log(x) at x=2; df/dx = 1/2 = 0.5
+TEST(AutodiffFiniteDiff, FD_LogX)
+{
+    const float x0 = 2.0f;
+
+    dtape_reset();
+    DVar x(x0);
+    DVar z = dlog(x);
+    z.backward();
+    float analytic = x.grad();
+
+    auto f = [](float t) { return std::log(t); };
+    float fd = (f(x0 + FD_EPS) - f(x0 - FD_EPS)) / (2.0f * FD_EPS);
+
+    EXPECT_NEAR(analytic, fd,    1e-3f);
+    EXPECT_NEAR(analytic, 0.5f, 1e-3f);
+}
+
+// 5. FD_SinX: f(x) = sin(x) at x=0.5; df/dx = cos(0.5)
+TEST(AutodiffFiniteDiff, FD_SinX)
+{
+    const float x0 = 0.5f;
+
+    dtape_reset();
+    DVar x(x0);
+    DVar z = dsin(x);
+    z.backward();
+    float analytic = x.grad();
+
+    auto f = [](float t) { return std::sin(t); };
+    float fd = (f(x0 + FD_EPS) - f(x0 - FD_EPS)) / (2.0f * FD_EPS);
+
+    EXPECT_NEAR(analytic, fd,                    1e-3f);
+    EXPECT_NEAR(analytic, std::cos(x0),          1e-3f);
+}
+
+// 6. FD_TanhX: f(x) = tanh(x) at x=1; df/dx = 1 - tanh^2(1)
+TEST(AutodiffFiniteDiff, FD_TanhX)
+{
+    const float x0 = 1.0f;
+
+    dtape_reset();
+    DVar x(x0);
+    DVar z = dtanh(x);
+    z.backward();
+    float analytic = x.grad();
+
+    auto f = [](float t) { return std::tanh(t); };
+    float fd = (f(x0 + FD_EPS) - f(x0 - FD_EPS)) / (2.0f * FD_EPS);
+
+    float expected = 1.0f - std::tanh(x0) * std::tanh(x0);
+    EXPECT_NEAR(analytic, fd,       1e-3f);
+    EXPECT_NEAR(analytic, expected, 1e-3f);
+}
+
+// 7. FD_Chain: f(x) = exp(x*x) at x=1; df/dx = 2x*exp(x^2) = 2*exp(1)
+TEST(AutodiffFiniteDiff, FD_Chain)
+{
+    const float x0 = 1.0f;
+
+    dtape_reset();
+    DVar x(x0);
+    DVar z = dexp(x * x);
+    z.backward();
+    float analytic = x.grad();
+
+    auto f = [](float t) { return std::exp(t * t); };
+    float fd = (f(x0 + FD_EPS) - f(x0 - FD_EPS)) / (2.0f * FD_EPS);
+
+    float expected = 2.0f * std::exp(1.0f);
+    EXPECT_NEAR(analytic, fd,       1e-3f);
+    EXPECT_NEAR(analytic, expected, 1e-3f);
+}
+
+// 8. FD_MultiVar: f(x,y) = x*x + x*y at x=2, y=3
+//    df/dx = 2x + y = 7;  df/dy = x = 2
+TEST(AutodiffFiniteDiff, FD_MultiVar)
+{
+    const float x0 = 2.0f, y0 = 3.0f;
+
+    // --- analytic ---
+    dtape_reset();
+    DVar x(x0), y(y0);
+    DVar z = x * x + x * y;
+    z.backward();
+    float analytic_dx = x.grad();
+    float analytic_dy = y.grad();
+
+    // --- finite diff for df/dx (perturb x, hold y fixed) ---
+    auto fx = [&](float tx) { return tx * tx + tx * y0; };
+    float fd_dx = (fx(x0 + FD_EPS) - fx(x0 - FD_EPS)) / (2.0f * FD_EPS);
+
+    // --- finite diff for df/dy (perturb y, hold x fixed) ---
+    auto fy = [&](float ty) { return x0 * x0 + x0 * ty; };
+    float fd_dy = (fy(y0 + FD_EPS) - fy(y0 - FD_EPS)) / (2.0f * FD_EPS);
+
+    EXPECT_NEAR(analytic_dx, fd_dx, 1e-3f);
+    EXPECT_NEAR(analytic_dx, 7.0f,  1e-3f);  // 2*2 + 3 = 7
+
+    EXPECT_NEAR(analytic_dy, fd_dy, 1e-3f);
+    EXPECT_NEAR(analytic_dy, 2.0f,  1e-3f);  // x = 2
+}
