@@ -25,8 +25,13 @@ inline Halide::Func pad(Halide::Func f, int n, int before, int after,
     Halide::Var i("i");
     Halide::Expr orig = i - before;
     Halide::Func ret(name);
-    ret(i) = Halide::select(orig >= 0 && orig < n,
-        f(Halide::clamp(orig, 0, n - 1)), value);
+    // Guard as multiplied 0/1 factors + unconditional clamp — a select whose
+    // condition proves the clamp redundant lets the simplifier strip it and
+    // CMOV reads OOB (see polymul in polynomial.h).
+    Halide::Type type = f.types()[0];
+    Halide::Expr valid = orig >= 0 && orig < n;
+    ret(i) = f(Halide::clamp(orig, 0, n - 1)) * Halide::cast(type, valid)
+        + Halide::cast(type, value) * Halide::cast(type, !valid);
     return ret;
 }
 
@@ -101,10 +106,14 @@ inline Halide::Func pad_2d(Halide::Func f, const shape_t& shape,
     Halide::Expr ox = x - left;
     Halide::Expr oy = y - top;
     Halide::Func ret(name);
-    ret(x, y) = Halide::select(
-        ox >= 0 && ox < cols && oy >= 0 && oy < rows,
-        f(Halide::clamp(ox, 0, cols - 1), Halide::clamp(oy, 0, rows - 1)),
-        value);
+    // Guard as multiplied 0/1 factors + unconditional clamps — a select whose
+    // condition proves a clamp redundant lets the simplifier strip it and
+    // CMOV reads OOB (see polymul in polynomial.h).
+    Halide::Type type = f.types()[0];
+    Halide::Expr valid = ox >= 0 && ox < cols && oy >= 0 && oy < rows;
+    ret(x, y) = f(Halide::clamp(ox, 0, cols - 1), Halide::clamp(oy, 0, rows - 1))
+            * Halide::cast(type, valid)
+        + Halide::cast(type, value) * Halide::cast(type, !valid);
     return ret;
 }
 

@@ -24,11 +24,13 @@ inline Halide::Func concat_1d(Halide::Func f1, int n1,
     } else if (n2 == 0) {
         ret(i) = f1(i);
     } else {
-        // Clamp both accesses so Halide's conservative bounds inference succeeds.
-        // select still picks the correct branch; clamp only prevents out-of-bounds JIT errors.
-        ret(i) = Halide::select(i < n1,
-            f1(Halide::clamp(i, 0, n1 - 1)),
-            f2(Halide::clamp(i - n1, 0, n2 - 1)));
+        // Guard as multiplied 0/1 factors + unconditional clamps — a select
+        // whose condition proves a clamp redundant lets the simplifier strip
+        // it and CMOV reads OOB (see polymul in polynomial.h). The indicators
+        // partition the range, so the sum equals the old select.
+        Halide::Type type = f1.types()[0];
+        ret(i) = f1(Halide::clamp(i, 0, n1 - 1)) * Halide::cast(type, i < n1)
+            + f2(Halide::clamp(i - n1, 0, n2 - 1)) * Halide::cast(type, i >= n1);
     }
     return ret;
 }
@@ -46,14 +48,17 @@ inline Halide::Func concatenate(const std::vector<Halide::Func>& funcs,
         off[k] = off[k-1] + sizes[k-1];
 
     Halide::Var i("i");
-    // Build nested selects right-to-left.
-    // Clamp each access so bounds inference never sees out-of-range indices.
-    int last = (int)funcs.size() - 1;
-    Halide::Expr val = funcs[last](Halide::clamp(i - off[last], 0, sizes[last] - 1));
-    for (int k = last - 1; k >= 0; --k)
-        val = Halide::select(i < off[k] + sizes[k],
-            funcs[k](Halide::clamp(i - off[k], 0, sizes[k] - 1)),
-            val);
+    // Sum of per-source terms, each guarded as a multiplied 0/1 indicator
+    // with an unconditional clamp — a select whose condition proves a clamp
+    // redundant lets the simplifier strip it and CMOV reads OOB (see polymul
+    // in polynomial.h). The indicators partition the output range, so the
+    // sum equals the old select chain.
+    Halide::Type type = funcs[0].types()[0];
+    Halide::Expr val = funcs[0](Halide::clamp(i - off[0], 0, sizes[0] - 1))
+        * Halide::cast(type, i >= off[0] && i < off[0] + sizes[0]);
+    for (int k = 1; k < (int)funcs.size(); ++k)
+        val = val + funcs[k](Halide::clamp(i - off[k], 0, sizes[k] - 1))
+            * Halide::cast(type, i >= off[k] && i < off[k] + sizes[k]);
 
     Halide::Func ret(name);
     ret(i) = val;
@@ -79,14 +84,16 @@ inline Halide::Func concat_2d(Halide::Func f1, const shape_t& s1,
     (void)s2;
     Halide::Var x("x"), y("y");
     Halide::Func ret(name);
+    // Guard as multiplied 0/1 factors + unconditional clamps — a select whose
+    // condition proves a clamp redundant lets the simplifier strip it and
+    // CMOV reads OOB (see polymul in polynomial.h).
+    Halide::Type type = f1.types()[0];
     if (axis == 0)
-        ret(x, y) = Halide::select(y < s1[0],
-            f1(x, Halide::clamp(y,          0, s1[0] - 1)),
-            f2(x, Halide::clamp(y - s1[0],  0, s2[0] - 1)));
+        ret(x, y) = f1(x, Halide::clamp(y,          0, s1[0] - 1)) * Halide::cast(type, y < s1[0])
+            + f2(x, Halide::clamp(y - s1[0],  0, s2[0] - 1)) * Halide::cast(type, y >= s1[0]);
     else
-        ret(x, y) = Halide::select(x < s1[1],
-            f1(Halide::clamp(x,          0, s1[1] - 1), y),
-            f2(Halide::clamp(x - s1[1],  0, s2[1] - 1), y));
+        ret(x, y) = f1(Halide::clamp(x,          0, s1[1] - 1), y) * Halide::cast(type, x < s1[1])
+            + f2(Halide::clamp(x - s1[1],  0, s2[1] - 1), y) * Halide::cast(type, x >= s1[1]);
     return ret;
 }
 

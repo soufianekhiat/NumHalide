@@ -384,10 +384,19 @@ Halide::Func sort_1d_fast(Halide::Func f, int n, bool ascending = true,
 
     Halide::Func work(name + "_work");
     Halide::Var x("x");
-    if (padded > n)
-        work(x) = Halide::select(x < n, f(Halide::clamp(x, 0, n - 1)), make_sentinel());
-    else
+    if (padded > n) {
+        // select(x < n, f(clamp(x, ...)), sentinel) is CMOV-unsafe: the
+        // condition proves the clamp redundant, the simplifier strips it, and
+        // CMOV reads OOB. The multiplied 0/1 guard (see polymul in
+        // polynomial.h) cannot be used either — the float sentinel is +/-inf
+        // and inf*0 = NaN. Pure-def + bounded-RDom instead: fill with the
+        // sentinel, then overwrite the valid prefix with an in-range read.
+        work(x) = make_sentinel();
+        Halide::RDom rpad(0, n, name + "_rpad");
+        work(rpad) = f(rpad);
+    } else {
         work(x) = f(x);
+    }
     work.compute_root();
 
     Halide::Func next, prev = work;
@@ -437,12 +446,19 @@ Halide::Func argsort_1d_fast(Halide::Func f, int n, bool ascending = true,
 
     Halide::Func indexed(name + "_idx");
     Halide::Var x("x");
-    if (padded > n)
-        indexed(x) = Halide::Tuple(
-            Halide::select(x < n, f(Halide::clamp(x, 0, n - 1)), make_sentinel()),
-            Halide::select(x < n, x, padded + n));  // sentinel index > valid range
-    else
+    if (padded > n) {
+        // CMOV-unsafe select/clamp on the value lane (the condition proves the
+        // clamp redundant, the simplifier strips it, CMOV reads OOB), and the
+        // multiplied 0/1 guard (see polymul in polynomial.h) cannot be used —
+        // the float sentinel is +/-inf and inf*0 = NaN. Pure-def +
+        // bounded-RDom instead: fill with (sentinel value, sentinel index),
+        // then overwrite the valid prefix with an in-range read.
+        indexed(x) = Halide::Tuple(make_sentinel(), padded + n);  // sentinel index > valid range
+        Halide::RDom rpad(0, n, name + "_rpad");
+        indexed(rpad) = Halide::Tuple(f(rpad), rpad);
+    } else {
         indexed(x) = Halide::Tuple(f(x), x);
+    }
     indexed.compute_root();
 
     Halide::Func next, prev = indexed;

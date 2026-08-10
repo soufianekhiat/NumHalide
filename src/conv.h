@@ -61,8 +61,12 @@ Halide::Func convolve1d(Halide::Func input, const shape_t& in_shape,
     } else if (mode == "full") {
         // Zero-pad outside: output[x] = sum_r input[x + r - (kernel_size-1)] * kernel[kernel_size - 1 - r]
         // Output positions: x in [0, n + kernel_size - 2]
+        // Guard as multiplied 0/1 factor + unconditional clamp — a select whose
+        // condition proves the clamp redundant lets the simplifier strip it and
+        // CMOV reads OOB (see polymul in polynomial.h).
         Halide::Expr idx = x + r - (kernel_size - 1);
-        Halide::Expr val = Halide::select(idx >= 0 && idx < n, input(Halide::clamp(idx, 0, n - 1)), 0.0f);
+        Halide::Expr valid = idx >= 0 && idx < n;
+        Halide::Expr val = input(Halide::clamp(idx, 0, n - 1)) * Halide::cast(input.types()[0], valid);
         ret(x) = Halide::cast(input.types()[0], 0);
         ret(x) += val * kernel(kernel_size - 1 - r);
     } else {

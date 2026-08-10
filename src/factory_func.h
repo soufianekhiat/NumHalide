@@ -11,18 +11,22 @@
 NS_NUM_HALIDE_BEGIN
 
 /// @brief Check if expression is a constant with specific value
+///
+/// `auto` on the as_const_* results keeps this compatible with both Halide
+/// APIs: releases returning `T const*` and releases returning
+/// `std::optional<T>` — both are truthy-when-present and dereferenceable.
 template < typename ValueType >
 bool is_const_value(Halide::Expr x, ValueType v)
 {
-	if (int64_t const* pValueInt = Halide::Internal::as_const_int(x))
+	if (auto pValueInt = Halide::Internal::as_const_int(x))
 	{
 		return static_cast<ValueType>(*pValueInt) == v;
 	}
-	else if (uint64_t const* pValueUint = Halide::Internal::as_const_uint(x))
+	else if (auto pValueUint = Halide::Internal::as_const_uint(x))
 	{
 		return static_cast<ValueType>(*pValueUint) == v;
 	}
-	else if (f64 const* pValueFloat = Halide::Internal::as_const_float(x))
+	else if (auto pValueFloat = Halide::Internal::as_const_float(x))
 	{
 		return static_cast<ValueType>(*pValueFloat) == v;
 	}

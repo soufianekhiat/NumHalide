@@ -174,8 +174,11 @@ Halide::Func polyadd(Halide::Func a, int na, Halide::Func b, int nb,
 
     Halide::Type type = a.types()[0];
 
-    Halide::Expr aval = Halide::select(ai >= 0 && ai < na, a(Halide::clamp(ai, 0, na-1)), Halide::Internal::make_const(type, 0));
-    Halide::Expr bval = Halide::select(bi >= 0 && bi < nb, b(Halide::clamp(bi, 0, nb-1)), Halide::Internal::make_const(type, 0));
+    // Guard as multiplied 0/1 factor + unconditional clamp — a select whose
+    // condition proves the clamp redundant lets the simplifier strip it and
+    // CMOV reads OOB (see polymul below).
+    Halide::Expr aval = a(Halide::clamp(ai, 0, na-1)) * Halide::cast(type, ai >= 0 && ai < na);
+    Halide::Expr bval = b(Halide::clamp(bi, 0, nb-1)) * Halide::cast(type, bi >= 0 && bi < nb);
 
     ret(i) = aval + bval;
     return ret;
@@ -196,8 +199,11 @@ Halide::Func polysub(Halide::Func a, int na, Halide::Func b, int nb,
     Halide::Expr bi = i - offset_b;
     Halide::Type type = a.types()[0];
 
-    Halide::Expr aval = Halide::select(ai >= 0 && ai < na, a(Halide::clamp(ai, 0, na-1)), Halide::Internal::make_const(type, 0));
-    Halide::Expr bval = Halide::select(bi >= 0 && bi < nb, b(Halide::clamp(bi, 0, nb-1)), Halide::Internal::make_const(type, 0));
+    // Guard as multiplied 0/1 factor + unconditional clamp — a select whose
+    // condition proves the clamp redundant lets the simplifier strip it and
+    // CMOV reads OOB (see polymul below).
+    Halide::Expr aval = a(Halide::clamp(ai, 0, na-1)) * Halide::cast(type, ai >= 0 && ai < na);
+    Halide::Expr bval = b(Halide::clamp(bi, 0, nb-1)) * Halide::cast(type, bi >= 0 && bi < nb);
 
     ret(i) = aval - bval;
     return ret;
@@ -230,12 +236,48 @@ Halide::Func polymul(Halide::Func a, int na, Halide::Func b, int nb,
     // Contribution of a[ka]*b[kb] (powers (na-1-ka) + (nb-1-kb) = na+nb-2-ka-kb) goes to index ka+kb
     // So result[i] = sum_{k=0}^{na-1} a[k] * b[i-k]  where b[j] = 0 if j<0 or j>=nb
 
+    // Invalid lanes are zeroed by a MULTIPLIED 0/1 factor with the access
+    // clamped unconditionally — not select(cond, b(clamp(bj)), 0): when the
+    // select condition proves the clamp redundant the simplifier strips it,
+    // and the CMOV lowering evaluates both arms, reading the unclamped
+    // index out of bounds.
     ret(i) = Halide::Internal::make_const(type, 0);
     Halide::RDom rk(0, na, "rk_polymul");
     Halide::Expr bj = i - rk;
-    ret(i) += Halide::select(bj >= 0 && bj < nb,
-        a(rk) * b(Halide::clamp(bj, 0, nb-1)),
-        Halide::Internal::make_const(type, 0));
+    Halide::Expr valid = (bj >= 0) && (bj < nb);
+    ret(i) += a(rk) * b(Halide::clamp(bj, 0, nb-1)) * Halide::cast(type, valid);
+
+    return ret;
+}
+
+/// @brief Multiply two polynomials with RUNTIME coefficient counts
+/// @param a Coefficients of first polynomial (size na, highest power first)
+/// @param na Size of a as a runtime expression (e.g. an input buffer extent)
+/// @param b Coefficients of second polynomial (size nb)
+/// @param nb Size of b as a runtime expression
+/// @param name Function name
+/// @return Coefficient array; the product occupies the first na+nb-1
+///         entries, any realization beyond that is zero-padded.
+///
+/// Same convolution as the compile-time overload; sizes only shape the
+/// reduction bounds and the guard, so Exprs work as well as ints. Extents
+/// are buffer metadata, not image loads, so they are legal RDom bounds.
+inline
+Halide::Func polymul(Halide::Func a, Halide::Expr na, Halide::Func b, Halide::Expr nb,
+    std::string const& name = "polymul_rt")
+{
+    Halide::Func ret(name);
+    Halide::Var i("i");
+    Halide::Type type = a.types()[0];
+
+    // result[i] = sum_r a(i - r) * b(r), keeping 0 <= i - r < na.
+    // Guard discipline as above: multiplied 0/1 factor, unconditional clamp.
+    Halide::RDom r(0, nb, "r_" + name);
+    Halide::Expr k = i - r;
+    Halide::Expr valid = (r <= i) && (k < na);
+    ret(i) = Halide::sum(
+        a(Halide::clamp(k, 0, na - 1)) * b(r) * Halide::cast(type, valid),
+        name + "_sum");
 
     return ret;
 }
@@ -307,11 +349,14 @@ Halide::Func polyint(Halide::Func a, int na, Halide::Expr k = 0.0f,
 
     // result[i] for i in 0..na-1: a[i] / (na - i)  [integration of power (na-1-i) → power (na-i)]
     // result[na]: integration constant k
-    ret(i) = Halide::select(
-        i < na,
-        a(Halide::clamp(i, 0, na-1)) / Halide::cast(type, na - i),
-        Halide::cast(type, k)
-    );
+    // Guard as multiplied 0/1 factors + unconditional clamp — a select whose
+    // condition proves the clamp redundant lets the simplifier strip it and
+    // CMOV reads OOB (see polymul above). max() keeps the always-evaluated
+    // division nonzero at i == na.
+    Halide::Expr valid = i < na;
+    ret(i) = a(Halide::clamp(i, 0, na-1)) / Halide::cast(type, Halide::max(na - i, 1))
+        * Halide::cast(type, valid)
+        + Halide::cast(type, k) * Halide::cast(type, !valid);
 
     return ret;
 }

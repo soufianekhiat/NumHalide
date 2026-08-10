@@ -177,8 +177,11 @@ Halide::Func correlate1d(Halide::Func a, Halide::Func v, int na, int nv,
     Halide::RDom rn(0, nv, "rn_corr1d");
     ret(k) = 0.0f;
     Halide::Expr a_idx = rn + k - pad;
-    ret(k) += Halide::select(a_idx >= 0 && a_idx < na,
-        a(Halide::clamp(a_idx, 0, na - 1)) * v(rn), 0.0f);
+    // Guard as multiplied 0/1 factor + unconditional clamp — a select whose
+    // condition proves the clamp redundant lets the simplifier strip it and
+    // CMOV reads OOB (see polymul in polynomial.h).
+    Halide::Expr valid = a_idx >= 0 && a_idx < na;
+    ret(k) += a(Halide::clamp(a_idx, 0, na - 1)) * v(rn) * Halide::cast<float>(valid);
     return ret;
 }
 
