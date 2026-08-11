@@ -325,6 +325,37 @@ inline shape_t infer_matvec(const shape_t& mat, const shape_t& vec) {
 	return shape_t{ mat.extents[0] };
 }
 
+/// @brief Matrix multiply with a RUNTIME contraction length, in the
+/// library's own convention: ret(x, y) += a(k, y) * b(x, k). The output
+/// extents flow from the realization; only K shapes the reduction.
+inline
+Halide::Func matmul(Halide::Func a, Halide::Func b, Halide::Expr K, std::string const& name = "matmul_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var x("x"), y("y");
+	Halide::RDom k(0, K, "k_" + name);
+
+	ret(x, y) = Halide::cast(a.types()[0], 0);
+	ret(x, y) += a(k, y) * b(x, k);
+
+	return ret;
+}
+
+/// @brief Matrix-vector multiply with a RUNTIME length, library convention:
+/// ret(y) += mat(k, y) * vec(k)
+inline
+Halide::Func matvec(Halide::Func mat, Halide::Func vec, Halide::Expr n, std::string const& name = "matvec_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var y("y");
+	Halide::RDom k(0, n, "k_" + name);
+
+	ret(y) = Halide::cast(mat.types()[0], 0);
+	ret(y) += mat(k, y) * vec(k);
+
+	return ret;
+}
+
 // -----------------------------------------------------------------------------
 // Trace and Diagonal
 // -----------------------------------------------------------------------------
