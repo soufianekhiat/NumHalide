@@ -1429,20 +1429,25 @@ struct SVDResult {
 ///
 /// Each sweep applies n*(n-1)/2 Jacobi column-rotation pairs.
 /// Convergence: off-diagonal entries of W^T W → 0.
+/// Computes in A's element type (f32, f64, ...).
 /// Note: internally creates O(n_sweeps * n²) compute_root stages; keep n ≤ 8.
 inline SVDResult svd_jacobi(Halide::Func A, int m, int n,
     int n_sweeps = 10, std::string const& name = "svd")
 {
     Halide::Var col("col"), row("row"), k("k");
 
+    Halide::Type type = A.types()[0];
+    Halide::Expr zero = Halide::Internal::make_const(type, 0.0);
+    Halide::Expr one  = Halide::Internal::make_const(type, 1.0);
+
     // Working matrix W (m×n): accumulates column rotations
     Halide::Func W(name + "_W0");
-    W(col, row) = Halide::cast<float>(A(col, row));
+    W(col, row) = Halide::cast(type, A(col, row));
     W.compute_root();
 
     // Right singular vector matrix V (n×n): starts as identity
     Halide::Func V(name + "_V0");
-    V(col, row) = Halide::select(col == row, 1.0f, 0.0f);
+    V(col, row) = Halide::select(col == row, one, zero);
     V.compute_root();
 
     for (int sweep = 0; sweep < n_sweeps; ++sweep) {
@@ -1455,55 +1460,62 @@ inline SVDResult svd_jacobi(Halide::Func A, int m, int n,
 
                 // Column dot products
                 Halide::Func alpha(tag + "_a");
-                alpha() = 0.0f;
+                alpha() = zero;
                 { Halide::RDom ra(0, m, "ra_" + tag); alpha() += W(p, ra) * W(p, ra); }
                 alpha.compute_root();
 
                 Halide::Func beta(tag + "_b");
-                beta() = 0.0f;
+                beta() = zero;
                 { Halide::RDom rb(0, m, "rb_" + tag); beta()  += W(q, rb) * W(q, rb); }
                 beta.compute_root();
 
                 Halide::Func gam(tag + "_g");
-                gam() = 0.0f;
+                gam() = zero;
                 { Halide::RDom rg(0, m, "rg_" + tag); gam()   += W(p, rg) * W(q, rg); }
                 gam.compute_root();
 
                 // Jacobi rotation: ζ=(β−α)/(2γ), t=sgn(ζ)/(|ζ|+√(1+ζ²))
                 // cs = 1/√(1+t²), sn = cs·t   (skip when γ≈0)
                 Halide::Expr g    = gam();
-                Halide::Expr skip = Halide::abs(g) < 1e-10f;
-                Halide::Expr zeta = (beta() - alpha()) / (2.0f * g);
+                Halide::Expr skip = Halide::abs(g) < Halide::Internal::make_const(type, 1e-10);
+                Halide::Expr zeta = (beta() - alpha()) / (Halide::Internal::make_const(type, 2.0) * g);
                 Halide::Expr abz  = Halide::abs(zeta);
-                Halide::Expr t    = Halide::select(zeta >= 0.0f, 1.0f, -1.0f)
-                                    / (abz + Halide::sqrt(1.0f + zeta * zeta));
+                Halide::Expr t    = Halide::select(zeta >= zero, one, Halide::Internal::make_const(type, -1.0))
+                                    / (abz + Halide::sqrt(one + zeta * zeta));
 
                 Halide::Func cs_f(tag + "_cs");
-                cs_f() = Halide::select(skip, 1.0f,
-                    1.0f / Halide::sqrt(1.0f + t * t));
+                cs_f() = Halide::select(skip, one,
+                    one / Halide::sqrt(one + t * t));
                 cs_f.compute_root();
 
                 Halide::Func sn_f(tag + "_sn");
-                sn_f() = Halide::select(skip, 0.0f, cs_f() * t);
+                sn_f() = Halide::select(skip, zero, cs_f() * t);
                 sn_f.compute_root();
 
-                // Update W[:,p] and W[:,q]  (using old W on RHS)
+                // Update W[:,p] and W[:,q]  (using old W on RHS).
+                // SIGN CONVENTION: t above solves t^2 + 2*zeta*t - 1 = 0,
+                // which annihilates the p.q dot product ONLY with the
+                // standard update wp' = c*wp - s*wq, wq' = s*wp + c*wq.
+                // The previous opposite-sign update left gamma unreduced
+                // and the sweep OSCILLATED instead of converging
+                // (measured: U^T*U off-diagonal ~0.39 regardless of
+                // sweeps).
                 Halide::Func W_next(tag + "_W");
                 W_next(col, row) = W(col, row);
                 { Halide::RDom rp(0, m, "rWp_" + tag);
-                  W_next(p, rp) =  cs_f() * W(p, rp) + sn_f() * W(q, rp); }
+                  W_next(p, rp) = cs_f() * W(p, rp) - sn_f() * W(q, rp); }
                 { Halide::RDom rq(0, m, "rWq_" + tag);
-                  W_next(q, rq) = -sn_f() * W(p, rq) + cs_f() * W(q, rq); }
+                  W_next(q, rq) = sn_f() * W(p, rq) + cs_f() * W(q, rq); }
                 W_next.compute_root();
                 W = W_next;
 
-                // Update V[:,p] and V[:,q]
+                // Update V[:,p] and V[:,q] with the SAME rotation
                 Halide::Func V_next(tag + "_V");
                 V_next(col, row) = V(col, row);
                 { Halide::RDom rvp(0, n, "rVp_" + tag);
-                  V_next(p, rvp) =  cs_f() * V(p, rvp) + sn_f() * V(q, rvp); }
+                  V_next(p, rvp) = cs_f() * V(p, rvp) - sn_f() * V(q, rvp); }
                 { Halide::RDom rvq(0, n, "rVq_" + tag);
-                  V_next(q, rvq) = -sn_f() * V(p, rvq) + cs_f() * V(q, rvq); }
+                  V_next(q, rvq) = sn_f() * V(p, rvq) + cs_f() * V(q, rvq); }
                 V_next.compute_root();
                 V = V_next;
             }
@@ -1512,19 +1524,48 @@ inline SVDResult svd_jacobi(Halide::Func A, int m, int n,
 
     // Singular values: S[k] = ||W[:,k]||
     Halide::Func ss_sv(name + "_ss");
-    { Halide::RDom r_sv(0, m, "rsv"); ss_sv(k) = 0.0f; ss_sv(k) += W(k, r_sv) * W(k, r_sv); }
+    { Halide::RDom r_sv(0, m, "rsv"); ss_sv(k) = zero; ss_sv(k) += W(k, r_sv) * W(k, r_sv); }
     ss_sv.compute_root();
 
+    Halide::Func S_raw(name + "_Sraw");
+    S_raw(k) = Halide::sqrt(ss_sv(k));
+    S_raw.compute_root();
+
+    // DESCENDING order (numpy convention): stable rank of each column,
+    // then gather S / U columns / V columns through the permutation.
+    Halide::Func rank_f(name + "_rank");
+    rank_f(k) = Halide::cast<int32_t>(0);
+    { Halide::RDom rr(0, n, "rrank_" + name);
+      rank_f(k) += Halide::select(
+          S_raw(rr) > S_raw(k) || (S_raw(rr) == S_raw(k) && rr < k),
+          Halide::cast<int32_t>(1), Halide::cast<int32_t>(0)); }
+    rank_f.compute_root();
+
+    // Gathers use MULTIPLIED 0/1 indicators, not select: reverse-mode AD
+    // synthesizes a float32 zero for the inactive select branch, which
+    // type-clashes with the f64 derivative of a division inside the arm.
+    // The indicator form derives cleanly in every type; the divisor is
+    // floored so an exactly-singular input stays finite.
+    Halide::Expr tiny = Halide::Internal::make_const(type, 1e-30);
+
     Halide::Func S(name + "_S");
-    S(k) = Halide::sqrt(ss_sv(k));
+    { Halide::RDom rs(0, n, "rgs_" + name);
+      S(k) = zero;
+      S(k) += S_raw(rs) * Halide::cast(type, rank_f(rs) == k); }
+    S.compute_root();
 
-    // U[:,k] = W[:,k] / S[k]
+    // U[:,k] = W[:,perm(k)] / S[perm(k)]
     Halide::Func U(name + "_U");
-    U(col, row) = W(col, row) / S(col);
+    { Halide::RDom ru(0, n, "rgu_" + name);
+      U(col, row) = zero;
+      U(col, row) += W(ru, row) / Halide::max(S_raw(ru), tiny) *
+                     Halide::cast(type, rank_f(ru) == col); }
 
-    // Vt = V^T
+    // Vt = permuted V^T: row k of Vt is V's column perm(k)
     Halide::Func Vt(name + "_Vt");
-    Vt(col, row) = V(row, col);
+    { Halide::RDom rv(0, n, "rgv_" + name);
+      Vt(col, row) = zero;
+      Vt(col, row) += V(rv, col) * Halide::cast(type, rank_f(rv) == row); }
 
     return {U, S, Vt};
 }
