@@ -491,11 +491,10 @@ Halide::Func mark_unique(Halide::Func sorted_input, Halide::Expr n,
 
     // ret[0] = 1 (first element always unique)
     // ret[i] = 1 if sorted_input[i] != sorted_input[i-1], else 0
-    ret(x) = Halide::select(x == 0,
-                            Halide::cast<int32_t>(1),
-                            Halide::select(cur != prev,
-                                           Halide::cast<int32_t>(1),
-                                           Halide::cast<int32_t>(0)));
+    // Indicator max instead of selects — a select wrapping clamped
+    // neighbor reads is the CMOV hazard (see unique_zerofill below).
+    ret(x) = Halide::max(Halide::cast<int32_t>(x == 0),
+                         Halide::cast<int32_t>(cur != prev));
     return ret;
 }
 
@@ -519,12 +518,16 @@ Halide::Func unique_zerofill(Halide::Func sorted_input, Halide::Expr n,
     Halide::Expr cur  = sorted_input(Halide::clamp(x,     0, n - 1));
     Halide::Expr prev = sorted_input(Halide::clamp(x - 1, 0, n - 1));
 
-    // Keep value if first occurrence, zero it out if duplicate
-    ret(x) = Halide::select(x == 0,
-                            cur,
-                            Halide::select(cur != prev,
-                                           cur,
-                                           Halide::cast(cur.type(), 0)));
+    // Keep value if first occurrence, zero it out if duplicate.
+    // Multiplied 0/1 indicator instead of selects: a select wrapping
+    // clamped neighbor reads is the CMOV hazard (the simplifier may
+    // strip a clamp the select condition proves redundant, and CMOV
+    // evaluates both arms) — observed as a heap-dependent flaky
+    // garbage read at the array tail before this form.
+    Halide::Expr keep = Halide::max(
+        Halide::cast(cur.type(), x == 0),
+        Halide::cast(cur.type(), cur != prev));
+    ret(x) = cur * keep;
     return ret;
 }
 
