@@ -1674,11 +1674,18 @@ inline EighResult eigh_jacobi(Halide::Func A, int n,
 /// @param b  1D n-vector Func
 /// @param n  System size
 /// @param name Base name
+/// @param eps Threaded through to the qr_gs column-norm guard and the
+///            back_sub pivot guard. 0 keeps the unguarded behavior.
 /// @return 1D solution Func x(i) such that A·x ≈ b
+///
+/// Computes in A's element type (f32, f64, ...); b must match.
 inline Halide::Func solve(Halide::Func A, Halide::Func b, int n,
-    std::string const& name = "solve")
+    std::string const& name = "solve", float eps = 0.0f)
 {
-    auto [Q, R] = qr_gs(A, n, n, name + "_qr");
+    Halide::Type type = A.types()[0];
+    Halide::Expr zero = Halide::Internal::make_const(type, 0.0);
+
+    auto [Q, R] = qr_gs(A, n, n, name + "_qr", eps);
     Q.compute_root();
     R.compute_root();
 
@@ -1686,11 +1693,11 @@ inline Halide::Func solve(Halide::Func A, Halide::Func b, int n,
     Halide::Var i("i");
     Halide::RDom r_qtb(0, n, "rqtb");
     Halide::Func y(name + "_y");
-    y(i) = 0.0f;
+    y(i) = zero;
     y(i) += Q(i, r_qtb) * b(r_qtb);
     y.compute_root();
 
-    return back_sub(R, y, n, name + "_bs");
+    return back_sub(R, y, n, name + "_bs", eps);
 }
 
 /// @brief Least-squares solution to A·x ≈ b (minimises ||A·x − b||₂)
@@ -1733,22 +1740,37 @@ inline Halide::Func lstsq(Halide::Func A, Halide::Func b, int m, int n,
 /// @param m    Number of rows
 /// @param n    Number of columns
 /// @param tol  Threshold below which singular values are treated as zero
+///             (compared in A's element type)
 /// @param n_sweeps SVD Jacobi sweeps
 /// @param name Base name
 /// @return n×m pseudo-inverse Func pinv(col=j, row=i) = A⁺[i,j]
+///
+/// Computes in A's element type (f32, f64, ...).
 inline Halide::Func pinv(Halide::Func A, int m, int n,
     float tol = 1e-10f, int n_sweeps = 10,
     std::string const& name = "pinv")
 {
+    Halide::Type type = A.types()[0];
+    Halide::Expr zero  = Halide::Internal::make_const(type, 0.0);
+    Halide::Expr one   = Halide::Internal::make_const(type, 1.0);
+    Halide::Expr tiny  = Halide::Internal::make_const(type, 1e-30);
+    Halide::Expr tol_e = Halide::Internal::make_const(type, static_cast<double>(tol));
+
     auto svd = svd_jacobi(A, m, n, n_sweeps, name + "_svd");
     svd.U.compute_root();
     svd.S.compute_root();
     svd.Vt.compute_root();
 
-    // S⁺[k] = 1/S[k] if S[k] > tol, else 0
+    // S⁺[k] = 1/S[k] if S[k] > tol, else 0 — written as a MULTIPLIED 0/1
+    // indicator with a floored divisor, NOT select(S > tol, 1/S, 0):
+    // reverse-mode AD synthesizes a float32 zero for the inactive select
+    // branch, which type-clashes with the f64 derivative of the division
+    // inside the arm. The indicator form derives cleanly in every type
+    // (same pattern as the svd_jacobi gathers above).
     Halide::Var k("k");
     Halide::Func Sinv(name + "_Sinv");
-    Sinv(k) = Halide::select(svd.S(k) > tol, 1.0f / svd.S(k), 0.0f);
+    Sinv(k) = (one / Halide::max(svd.S(k), tiny))
+              * Halide::cast(type, svd.S(k) > tol_e);
     Sinv.compute_root();
 
     // pinv(col=j, row=i) = Σ_k V[i,k] * S⁺[k] * U[j,k]
@@ -1757,7 +1779,7 @@ inline Halide::Func pinv(Halide::Func A, int m, int n,
     Halide::Var pi("pi"), pj("pj");
     Halide::RDom rk(0, n, "rk_pinv");
     Halide::Func ret(name);
-    ret(pj, pi) = 0.0f;
+    ret(pj, pi) = zero;
     ret(pj, pi) += svd.Vt(pi, rk) * Sinv(rk) * svd.U(rk, pj);
     return ret;
 }
