@@ -354,6 +354,21 @@ Halide::Func trace(Halide::Func mat, const shape_t& shape_mat, std::string const
 	return ret;
 }
 
+/// @brief Trace with a RUNTIME dimension: sum of mat(i, i), i in [0, n)
+/// @param n Diagonal length as a runtime expression (e.g. a buffer extent)
+inline
+Halide::Func trace(Halide::Func mat, Halide::Expr n, std::string const& name = "trace")
+{
+	Halide::Func ret(name);
+	Halide::Var x("x");
+	Halide::RDom i(0, n, "i_" + name);
+
+	ret(x) = Halide::cast(mat.types()[0], 0);
+	ret(x) += mat(i, i);
+
+	return ret;
+}
+
 /// @brief Extract the diagonal of a matrix
 /// @param mat Matrix (M x N)
 /// @param shape_mat Shape of matrix
@@ -436,6 +451,24 @@ Halide::Func norm(Halide::Func vec, const shape_t& shape_vec, std::string const&
 	return ret;
 }
 
+/// @brief L2 vector norm with a RUNTIME length, in the input's own type
+inline
+Halide::Func norm(Halide::Func vec, Halide::Expr n, std::string const& name = "norm")
+{
+	Halide::Type type = vec.types()[0];
+	Halide::Func ret(name);
+	Halide::Var x("x");
+	Halide::RDom i(0, n, "i_" + name);
+
+	Halide::Func sum_sq(name + "_sum_sq");
+	sum_sq(x) = Halide::cast(type, 0);
+	sum_sq(x) += vec(i) * vec(i);
+
+	ret(x) = Halide::sqrt(sum_sq(x));
+
+	return ret;
+}
+
 /// @brief Compute Frobenius norm of a matrix
 /// @param mat Matrix
 /// @param shape_mat Shape of matrix (2D)
@@ -457,6 +490,26 @@ Halide::Func frobenius_norm(Halide::Func mat, const shape_t& shape_mat, std::str
 	Halide::Func sum_sq("sum_sq");
 	sum_sq(x) = Halide::cast<float>(0);
 	sum_sq(x) += Halide::cast<float>(mat(r.x, r.y)) * Halide::cast<float>(mat(r.x, r.y));
+
+	ret(x) = Halide::sqrt(sum_sq(x));
+
+	return ret;
+}
+
+/// @brief Frobenius norm with RUNTIME extents, in the input's own type.
+/// The sum is permutation-invariant, so the orientation of (m, n) only
+/// needs to cover the buffer.
+inline
+Halide::Func frobenius_norm(Halide::Func mat, Halide::Expr m, Halide::Expr n, std::string const& name = "frobenius_norm")
+{
+	Halide::Type type = mat.types()[0];
+	Halide::Func ret(name);
+	Halide::Var x("x");
+	Halide::RDom r(0, m, 0, n, "r_" + name);
+
+	Halide::Func sum_sq(name + "_sum_sq");
+	sum_sq(x) = Halide::cast(type, 0);
+	sum_sq(x) += mat(r.x, r.y) * mat(r.x, r.y);
 
 	ret(x) = Halide::sqrt(sum_sq(x));
 
@@ -640,7 +693,7 @@ Halide::Func det3x3(Halide::Func mat, std::string const& name = "det3x3")
 /// @param name Function name
 /// @return Scalar Func (1D, size 1), index 0 = result
 inline
-Halide::Func inner_1d(Halide::Func a, Halide::Func b, int n,
+Halide::Func inner_1d(Halide::Func a, Halide::Func b, Halide::Expr n,
     std::string const& name = "inner")
 {
     Halide::Func ret(name);
