@@ -48,6 +48,25 @@ Halide::Func global_argmin(Halide::Func f, const shape_t& in_shape,
     return ret;
 }
 
+/// @brief global_argmin with a RUNTIME length.
+/// @param f Input Func (must be 1D)
+/// @param n Number of elements as a runtime expression (e.g. a buffer extent)
+///
+/// Halide::argmin keeps the FIRST minimum on ties (strict compare against
+/// the running best), matching numpy.
+inline
+Halide::Func global_argmin(Halide::Func f, Halide::Expr n,
+                           std::string const& name = "global_argmin_rt")
+{
+    Halide::RDom r(0, n, "r_" + name);
+    Halide::Tuple result = Halide::argmin(r, f(r));
+
+    Halide::Func ret(name);
+    Halide::Var idx;
+    ret(idx) = result[0];
+    return ret;
+}
+
 /// @brief Find the flat index of the maximum value in a 1D array.
 /// @param f       Input Func (must be 1D)
 /// @param in_shape Shape of input
@@ -64,6 +83,25 @@ Halide::Func global_argmax(Halide::Func f, const shape_t& in_shape,
     int n = in_shape.extents[0];
 
     Halide::RDom r(0, n);
+    Halide::Tuple result = Halide::argmax(r, f(r));
+
+    Halide::Func ret(name);
+    Halide::Var idx;
+    ret(idx) = result[0];
+    return ret;
+}
+
+/// @brief global_argmax with a RUNTIME length.
+/// @param f Input Func (must be 1D)
+/// @param n Number of elements as a runtime expression (e.g. a buffer extent)
+///
+/// Halide::argmax keeps the FIRST maximum on ties (strict compare against
+/// the running best), matching numpy.
+inline
+Halide::Func global_argmax(Halide::Func f, Halide::Expr n,
+                           std::string const& name = "global_argmax_rt")
+{
+    Halide::RDom r(0, n, "r_" + name);
     Halide::Tuple result = Halide::argmax(r, f(r));
 
     Halide::Func ret(name);
@@ -91,11 +129,9 @@ Halide::Func searchsorted(Halide::Func sorted_array, Halide::Func values,
                           int array_size, int /*values_size*/,
                           std::string const& name = "searchsorted")
 {
-    Halide::Func ret(name);
-    Halide::Var i;
-
-    // Binary search using reduction
-    // We'll iterate log2(array_size) times
+    // Number of halving steps that shrink [0, array_size) to a point:
+    // bit-width of array_size. Once low == high the guard freezes the state,
+    // so extra steps are no-ops.
     int max_iters = 0;
     int temp = array_size;
     while (temp > 0) {
@@ -103,23 +139,13 @@ Halide::Func searchsorted(Halide::Func sorted_array, Halide::Func values,
         temp >>= 1;
     }
 
-    // For each value, find insertion point
-    Halide::RDom r(0, max_iters);
+    // State per value: (low, high), iterated as a scan along a Var axis —
+    // a pure definition may not use an RDom argument.
+    Halide::Var i, t;
+    Halide::Func binary_search(name + "_scan");
+    binary_search(i, t) = Halide::Tuple(0, array_size);
 
-    // State: (low, high)
-    Halide::Func state("state");
-    state(i) = Halide::Tuple(0, array_size);
-
-    Halide::Func binary_search("binary_search");
-    binary_search(i, r) = Halide::Tuple(
-        Halide::undef<int32_t>(),
-        Halide::undef<int32_t>()
-    );
-
-    // Initialize
-    binary_search(i, -1) = Halide::Tuple(0, array_size);
-
-    // Binary search iteration
+    Halide::RDom r(1, max_iters, "r_" + name);
     Halide::Expr low = binary_search(i, r - 1)[0];
     Halide::Expr high = binary_search(i, r - 1)[1];
     Halide::Expr mid = (low + high) / 2;
@@ -136,7 +162,35 @@ Halide::Func searchsorted(Halide::Func sorted_array, Halide::Func values,
         )
     );
 
-    ret(i) = binary_search(i, max_iters - 1)[0];
+    Halide::Func ret(name);
+    ret(i) = binary_search(i, max_iters)[0];
+
+    return ret;
+}
+
+/// @brief searchsorted with a RUNTIME array size (side='left')
+/// @param sorted_array Sorted 1D Func
+/// @param values Values to search for
+/// @param array_size Size of the sorted array as a runtime expression
+/// @param name Function name
+/// @return Int32 Func with insertion indices
+///
+/// Counting form: ret(i) = #{ j : sorted_array(j) < values(i) }. For a
+/// sorted array this is exactly the side='left' insertion index the
+/// binary-search compile-time overload computes. A runtime size cannot
+/// drive the binary search's compile-time iteration count, and the plain
+/// sum reduction derives directly.
+inline
+Halide::Func searchsorted(Halide::Func sorted_array, Halide::Func values,
+                          Halide::Expr array_size,
+                          std::string const& name = "searchsorted_rt")
+{
+    Halide::Func ret(name);
+    Halide::Var i;
+
+    Halide::RDom r(0, Halide::max(array_size, 0), "r_" + name);
+    ret(i) = Halide::sum(
+        Halide::cast<int32_t>(sorted_array(r) < values(i)), "s_" + name);
 
     return ret;
 }
@@ -151,6 +205,23 @@ Halide::Func searchsorted_single(Halide::Func sorted_array, Halide::Expr value,
     values(i) = value;
 
     return searchsorted(sorted_array, values, array_size, 1, name);
+}
+
+/// @brief searchsorted_single with a RUNTIME array size (side='left')
+/// @param sorted_array Sorted 1D Func
+/// @param value Value to search for
+/// @param array_size Size of the sorted array as a runtime expression
+/// @return 1D Int32 Func; element [0] holds the insertion index
+inline
+Halide::Func searchsorted_single(Halide::Func sorted_array, Halide::Expr value,
+                                  Halide::Expr array_size,
+                                  std::string const& name = "searchsorted_single_rt")
+{
+    Halide::Func values("search_value_" + name);
+    Halide::Var i;
+    values(i) = value;
+
+    return searchsorted(sorted_array, values, array_size, name);
 }
 
 // -----------------------------------------------------------------------------

@@ -248,7 +248,7 @@ Halide::Func histogram(Halide::Func f, const shape_t& shape,
 /// @param bins Sorted Func (1D) containing bin edge values
 /// @param shape Shape of input f (must be 1D)
 /// @param n_bins Number of bin edges in bins Func
-/// @param right If true, bins[i-1] <= x < bins[i]; if false, bins[i-1] < x <= bins[i]
+/// @param right If true, count bins[r] < x; if false (default), count bins[r] <= x
 /// @param name Function name
 /// @return 1D Func with bin indices for each element of f
 ///
@@ -272,6 +272,38 @@ Halide::Func digitize(Halide::Func f, Halide::Func bins, const shape_t& shape,
 
 	// For each value, count how many bin edges it exceeds
 	// This gives the insertion index (equivalent to searchsorted)
+	ret(x) = Halide::cast<int32_t>(0);
+
+	if (right) {
+		// right=true: bins[i-1] < x <= bins[i], so count bins[r] < val
+		ret(x) += Halide::cast<int32_t>(Halide::select(bins(r) < f(x), 1, 0));
+	}
+	else {
+		// right=false (default): bins[i-1] <= x < bins[i], so count bins[r] <= val
+		ret(x) += Halide::cast<int32_t>(Halide::select(bins(r) <= f(x), 1, 0));
+	}
+
+	return ret;
+}
+
+/// @brief digitize with a RUNTIME bin-edge count
+/// @param f Input Func (1D) with values to digitize
+/// @param bins Sorted Func (1D) containing bin edge values
+/// @param n_bins Number of bin edges as a runtime expression
+/// @param right If true, count bins[r] < x; if false (default), count bins[r] <= x
+/// @param name Function name
+/// @return 1D Int32 Func with bin indices for each element of f
+///
+/// Same counting semantics as the compile-time overload above.
+inline
+Halide::Func digitize(Halide::Func f, Halide::Func bins, Halide::Expr n_bins,
+                      bool right = false,
+                      std::string const& name = "digitize_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var x;
+	Halide::RDom r(0, Halide::max(n_bins, 0), "r_" + name);
+
 	ret(x) = Halide::cast<int32_t>(0);
 
 	if (right) {

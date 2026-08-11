@@ -54,6 +54,34 @@ Halide::Func cumsum(Halide::Func f, const shape_t& shape, int axis = 0, std::str
 	return ret;
 }
 
+/// @brief Cumulative sum with a RUNTIME length (1D)
+/// @param f Input Func (1D)
+/// @param n Number of elements as a runtime expression (e.g. a buffer extent)
+/// @param name Function name
+/// @return Func with cumulative sums
+///
+/// Same sequential scan as the compile-time overload:
+/// ret(0) = f(0), ret(i) = ret(i-1) + f(i). Reverse-mode derivability of
+/// this scan form is verified. Type follows f.types()[0].
+inline
+Halide::Func cumsum(Halide::Func f, Halide::Expr n, std::string const& name = "cumsum_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var x("x");
+
+	// Pure definition: copy input
+	ret(x) = f(x);
+
+	// Serial scan update: ret(r) = ret(r-1) + f(r) for r = 1..n-1
+	Halide::RDom r(1, Halide::max(n - 1, 0), "r_" + name);
+	ret(r) = ret(r - 1) + f(r);
+
+	// Force sequential evaluation for correctness
+	ret.compute_root();
+
+	return ret;
+}
+
 // -----------------------------------------------------------------------------
 // Cumulative Product
 // -----------------------------------------------------------------------------
