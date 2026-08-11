@@ -1063,18 +1063,27 @@ SVD2x2Result svd2x2(Halide::Func mat, std::string const& name = "svd2x2")
 /// @param A    Positive-definite symmetric matrix Func (A(col, row))
 /// @param n    Matrix size (n×n)
 /// @param name Base Func name
+/// @param eps  When > 0, every sqrt argument is floored: sqrt(max(x, eps)).
+///             The diagonal is then ≥ sqrt(eps) > 0, so the column divisions
+///             by L[j,j] are guarded too. 0 keeps the unguarded behavior.
 /// @return Lower-triangular Func L(col, row) with L[i≥j,j] ≠ 0, L[i<j,j] = 0
 ///
 /// Column-by-column sequential algorithm using compute_root staging.
 /// Works for any n; internally creates O(n) intermediate Funcs.
+/// Computes in A's element type (f32, f64, ...).
 inline
-Halide::Func cholesky(Halide::Func A, int n, std::string const& name = "cholesky")
+Halide::Func cholesky(Halide::Func A, int n, std::string const& name = "cholesky",
+    float eps = 0.0f)
 {
     Halide::Var col("col"), row("row");
 
+    Halide::Type type = A.types()[0];
+    Halide::Expr zero = Halide::cast(type, 0);
+    Halide::Expr eps_e = Halide::cast(type, Halide::Expr(static_cast<double>(eps)));
+
     // Initial L is all zeros
     Halide::Func L_cur(name + "_init");
-    L_cur(col, row) = 0.0f;
+    L_cur(col, row) = zero;
     L_cur.compute_root();
 
     for (int j = 0; j < n; ++j) {
@@ -1082,7 +1091,7 @@ Halide::Func cholesky(Halide::Func A, int n, std::string const& name = "cholesky
 
         // -- Diagonal element L[j,j] = sqrt(A[j,j] - sum_{k<j} L[j,k]^2) --
         Halide::Func ss(name + "_ss" + sj);
-        ss() = 0.0f;
+        ss() = zero;
         if (j > 0) {
             Halide::RDom rk(0, j, "rkss" + sj);
             // L_cur(col=rk, row=j) = L_{row=j, col=k}
@@ -1091,12 +1100,15 @@ Halide::Func cholesky(Halide::Func A, int n, std::string const& name = "cholesky
         ss.compute_root();
 
         Halide::Func diag_j(name + "_djj" + sj);
-        diag_j() = Halide::sqrt(A(j, j) - ss());
+        if (eps > 0.0f)
+            diag_j() = Halide::sqrt(Halide::max(A(j, j) - ss(), eps_e));
+        else
+            diag_j() = Halide::sqrt(A(j, j) - ss());
         diag_j.compute_root();
 
         // -- Off-diagonal column j: dots(i) = sum_{k<j} L[i,k]*L[j,k] --
         Halide::Func dots(name + "_dots" + sj);
-        dots(row) = 0.0f;
+        dots(row) = zero;
         if (j > 0) {
             Halide::RDom rk(0, j, "rkd" + sj);
             dots(row) += L_cur(rk, row) * L_cur(rk, j);
@@ -1136,16 +1148,25 @@ struct QRResult {
 /// @param m    Number of rows
 /// @param n    Number of columns (≤ m)
 /// @param name Base Func name
+/// @param eps  When > 0, the column-norm sqrt is floored: sqrt(max(ss, eps)).
+///             The Q normalization then divides by that guarded norm
+///             (≥ sqrt(eps) > 0). 0 keeps the unguarded behavior.
 /// @return QRResult {Q (m×n), R (n×n)} such that Q·R = A and Qᵀ·Q = I
 ///
 /// Uses modified Gram-Schmidt (numerically more stable than classical GS).
 /// Internally creates O(n) compute_root stages.
+/// Computes in A's element type (f32, f64, ...).
 inline
-QRResult qr_gs(Halide::Func A, int m, int n, std::string const& name = "qr")
+QRResult qr_gs(Halide::Func A, int m, int n, std::string const& name = "qr",
+    float eps = 0.0f)
 {
     nh_require(m >= n, "qr_gs: requires m >= n, got m=%d n=%d", m, n);
 
     Halide::Var col("col"), row("row");
+
+    Halide::Type type = A.types()[0];
+    Halide::Expr zero = Halide::cast(type, 0);
+    Halide::Expr eps_e = Halide::cast(type, Halide::Expr(static_cast<double>(eps)));
 
     // Working copy of A (gets modified column by column)
     Halide::Func Aw(name + "_aw0");
@@ -1154,11 +1175,11 @@ QRResult qr_gs(Halide::Func A, int m, int n, std::string const& name = "qr")
 
     // Q and R initialised to zero
     Halide::Func Q(name + "_q0");
-    Q(col, row) = 0.0f;
+    Q(col, row) = zero;
     Q.compute_root();
 
     Halide::Func R(name + "_r0");
-    R(col, row) = 0.0f;
+    R(col, row) = zero;
     R.compute_root();
 
     for (int k = 0; k < n; ++k) {
@@ -1167,12 +1188,15 @@ QRResult qr_gs(Halide::Func A, int m, int n, std::string const& name = "qr")
         // 1. Norm of column k of Aw
         Halide::RDom r_norm(0, m, "rnorm" + sk);
         Halide::Func ss_k(name + "_ssk" + sk);
-        ss_k() = 0.0f;
+        ss_k() = zero;
         ss_k() += Aw(k, r_norm) * Aw(k, r_norm);
         ss_k.compute_root();
 
         Halide::Func nk(name + "_nk" + sk);
-        nk() = Halide::sqrt(ss_k());
+        if (eps > 0.0f)
+            nk() = Halide::sqrt(Halide::max(ss_k(), eps_e));
+        else
+            nk() = Halide::sqrt(ss_k());
         nk.compute_root();
 
         // 2. Q[:,k] = Aw[:,k] / nk  and  R[k,k] = nk
@@ -1198,7 +1222,7 @@ QRResult qr_gs(Halide::Func A, int m, int n, std::string const& name = "qr")
             // 3. Dot products: dp[j] = Q[:,k]·Aw[:,j]  for j > k
             Halide::RDom r_dp(0, m, "rdp" + sk);
             Halide::Func dp(name + "_dp" + sk);
-            dp(col) = 0.0f;
+            dp(col) = zero;
             dp(col) += Q(k, r_dp) * Aw(col, r_dp);
             dp.compute_root();
 
@@ -1246,13 +1270,23 @@ QRResult qr_gs(Halide::Func A, int m, int n, std::string const& name = "qr")
 /// @param R  n×n upper-triangular Func (R(col, row))
 /// @param y  1D n-vector Func
 /// @param n  System size
+/// @param eps When > 0, a diagonal pivot with |R[k,k]| ≤ eps is replaced by 1
+///            for the division (finite fallback instead of inf/NaN).
+///            0 keeps the unguarded behavior.
 /// @return   1D solution Func x(i)
+///
+/// Computes in R's element type (f32, f64, ...).
 inline Halide::Func back_sub(Halide::Func R, Halide::Func y, int n,
-    std::string const& name = "back_sub")
+    std::string const& name = "back_sub", float eps = 0.0f)
 {
     Halide::Var i("i");
+
+    Halide::Type type = R.types()[0];
+    Halide::Expr zero = Halide::cast(type, 0);
+    Halide::Expr eps_e = Halide::cast(type, Halide::Expr(static_cast<double>(eps)));
+
     Halide::Func x_cur(name + "_x0");
-    x_cur(i) = 0.0f;
+    x_cur(i) = zero;
     x_cur.compute_root();
 
     for (int k = n - 1; k >= 0; --k) {
@@ -1260,16 +1294,21 @@ inline Halide::Func back_sub(Halide::Func R, Halide::Func y, int n,
 
         // dot = Σ_{j>k} R[k,j] * x[j]  →  R(col=j, row=k) = R(j, k)
         Halide::Func dot(name + "_dot" + sk);
-        dot() = 0.0f;
+        dot() = zero;
         if (k < n - 1) {
             Halide::RDom rj(k + 1, n - k - 1, "rjbs" + sk);
             dot() += R(rj, k) * x_cur(rj);
         }
         dot.compute_root();
 
+        Halide::Expr rkk = R(k, k);
+        if (eps > 0.0f)
+            rkk = Halide::select(Halide::abs(rkk) > eps_e, rkk,
+                Halide::cast(type, 1));
+
         Halide::Func x_next(name + "_xk" + sk);
         x_next(i)  = x_cur(i);
-        x_next(k)  = (y(k) - dot()) / R(k, k);
+        x_next(k)  = (y(k) - dot()) / rkk;
         x_next.compute_root();
         x_cur = x_next;
     }
@@ -1559,13 +1598,17 @@ inline Halide::Func solve(Halide::Func A, Halide::Func b, int n,
 /// @param m  Number of rows
 /// @param n  Number of columns
 /// @param name Base name
+/// @param eps Threaded through to the qr_gs column-norm guard and the
+///            back_sub pivot guard. 0 keeps the unguarded behavior.
 /// @return 1D solution Func x(i) of length n
+///
+/// Computes in A's element type (f32, f64, ...); b must match.
 inline Halide::Func lstsq(Halide::Func A, Halide::Func b, int m, int n,
-    std::string const& name = "lstsq")
+    std::string const& name = "lstsq", float eps = 0.0f)
 {
     nh_require(m >= n, "lstsq: requires m >= n, got m=%d n=%d", m, n);
 
-    auto [Q, R] = qr_gs(A, m, n, name + "_qr");
+    auto [Q, R] = qr_gs(A, m, n, name + "_qr", eps);
     Q.compute_root();
     R.compute_root();
 
@@ -1573,11 +1616,11 @@ inline Halide::Func lstsq(Halide::Func A, Halide::Func b, int m, int n,
     Halide::Var i("i");
     Halide::RDom r_qtb(0, m, "rqtb_ls");
     Halide::Func y(name + "_y");
-    y(i) = 0.0f;
+    y(i) = Halide::cast(A.types()[0], 0);
     y(i) += Q(i, r_qtb) * b(r_qtb);
     y.compute_root();
 
-    return back_sub(R, y, n, name + "_bs");
+    return back_sub(R, y, n, name + "_bs", eps);
 }
 
 // -----------------------------------------------------------------------------
