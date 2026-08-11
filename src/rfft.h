@@ -146,10 +146,13 @@ Halide::Func irfft2d(Halide::Func input, int rows, int cols, std::string const& 
 /// @param N Window length
 /// @param d Sample spacing (default 1.0)
 /// @param name Function name
-/// @return 1D Func: [0, 1, 2, ..., N/2-1, -N/2, ..., -1] / (N*d)
+/// @return 1D Func: even N -> [0, 1, ..., N/2-1, -N/2, ..., -1] / (N*d);
+///         odd N -> [0, 1, ..., (N-1)/2, -(N-1)/2, ..., -1] / (N*d)
 ///
 /// Equivalent to numpy.fft.fftfreq. Returns the frequency bin centers
-/// in cycles per unit of the sample spacing.
+/// in cycles per unit of the sample spacing. The positive branch runs
+/// through (N-1)//2 — i.e. the select boundary is (N+1)/2, NOT N/2
+/// (they differ for odd N; N/2 mis-signed bin k=(N-1)/2).
 inline
 Halide::Func fftfreq(int N, float d = 1.0f, std::string const& name = "fftfreq")
 {
@@ -158,14 +161,42 @@ Halide::Func fftfreq(int N, float d = 1.0f, std::string const& name = "fftfreq")
 	Halide::Func ret(name);
 	Halide::Var x;
 
-	int half = N / 2;
+	int half = (N + 1) / 2;
 	// For x in [0, half-1]: freq = x / (N*d)
 	// For x in [half, N-1]: freq = (x - N) / (N*d)
 	ret(x) = Halide::select(
-		x <= half - 1,
+		x < half,
 		Halide::cast<float>(x),
 		Halide::cast<float>(x - N)
 	) / (N * d);
+
+	return ret;
+}
+
+/// @brief fftfreq with RUNTIME size and spacing
+/// @param n Window length as a runtime expression (integer)
+/// @param d Sample spacing as a runtime expression
+/// @param type Floating-point type to compute in (e.g. Halide::Float(32))
+/// @param name Function name
+/// @return Real-valued 1D Func of `type`
+///
+/// numpy.fft.fftfreq contract: positive frequencies through (n-1)//2,
+/// i.e. the (n+1)/2 select boundary. The select picks the numerator; the
+/// common division by n*d applies after it.
+inline
+Halide::Func fftfreq(Halide::Expr n, Halide::Expr d, Halide::Type type,
+                     std::string const& name = "fftfreq_rt")
+{
+	nh_require(type.is_float(), "fftfreq compute type must be a float type");
+
+	Halide::Func ret(name);
+	Halide::Var k("k");
+
+	ret(k) = Halide::select(
+		k < (n + 1) / 2,
+		Halide::cast(type, k),
+		Halide::cast(type, k - n)
+	) / (Halide::cast(type, n) * Halide::cast(type, d));
 
 	return ret;
 }
@@ -188,6 +219,29 @@ Halide::Func rfftfreq(int N, float d = 1.0f, std::string const& name = "rfftfreq
 
 	// Simply: freq[k] = k / (N*d) for k in [0, N/2]
 	ret(x) = Halide::cast<float>(x) / (N * d);
+
+	return ret;
+}
+
+/// @brief rfftfreq with RUNTIME size and spacing
+/// @param n Window length as a runtime expression (integer)
+/// @param d Sample spacing as a runtime expression
+/// @param type Floating-point type to compute in
+/// @param name Function name
+/// @return Real-valued 1D Func of `type`: freq[k] = k / (n*d)
+///
+/// Equivalent to numpy.fft.rfftfreq (all bins non-negative; the caller
+/// realizes n/2+1 of them).
+inline
+Halide::Func rfftfreq(Halide::Expr n, Halide::Expr d, Halide::Type type,
+                      std::string const& name = "rfftfreq_rt")
+{
+	nh_require(type.is_float(), "rfftfreq compute type must be a float type");
+
+	Halide::Func ret(name);
+	Halide::Var k("k");
+
+	ret(k) = Halide::cast(type, k) / (Halide::cast(type, n) * Halide::cast(type, d));
 
 	return ret;
 }

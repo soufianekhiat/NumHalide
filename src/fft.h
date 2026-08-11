@@ -445,6 +445,22 @@ Halide::Func fftshift_1d(Halide::Func input, int N, std::string const& name = "f
     return result;
 }
 
+/// @brief fftshift with a RUNTIME size (same ceil(N/2) gather as the int
+/// form; integer Expr arithmetic). Pure gather — no compute_root needed.
+inline
+Halide::Func fftshift_1d(Halide::Func input, Halide::Expr n, std::string const& name = "fftshift1d_rt")
+{
+    Halide::Func result(name);
+    Halide::Var x("x");
+
+    Halide::Expr half = (n + 1) / 2;
+    Halide::Expr src_x = (x + half) % n;
+
+    result(x) = Halide::Tuple(input(src_x)[0], input(src_x)[1]);
+
+    return result;
+}
+
 /// @brief Shift zero-frequency component to center of 2D spectrum
 /// @param input Complex input Func
 /// @param rows Number of rows
@@ -470,6 +486,27 @@ Halide::Func fftshift_2d(Halide::Func input, int rows, int cols, std::string con
     return result;
 }
 
+/// @brief 2-D fftshift with RUNTIME sizes (same ceil per-axis gather as
+/// the int form: x gathers with the cols offset, y with the rows offset).
+/// Pure gather — no compute_root needed.
+inline
+Halide::Func fftshift_2d(Halide::Func input, Halide::Expr rows, Halide::Expr cols,
+                         std::string const& name = "fftshift2d_rt")
+{
+    Halide::Func result(name);
+    Halide::Var x("x"), y("y");
+
+    Halide::Expr half_cols = (cols + 1) / 2;
+    Halide::Expr half_rows = (rows + 1) / 2;
+
+    Halide::Expr src_x = (x + half_cols) % cols;
+    Halide::Expr src_y = (y + half_rows) % rows;
+
+    result(x, y) = Halide::Tuple(input(src_x, src_y)[0], input(src_x, src_y)[1]);
+
+    return result;
+}
+
 /// @brief Inverse fftshift (floor(N/2) gather offset — coincides with
 /// fftshift for even N, differs for odd N; the pair round-trips)
 inline
@@ -486,6 +523,22 @@ Halide::Func ifftshift_1d(Halide::Func input, int N, std::string const& name = "
     return result;
 }
 
+/// @brief Inverse fftshift with a RUNTIME size (same floor(N/2) gather as
+/// the int form). Pure gather — no compute_root needed.
+inline
+Halide::Func ifftshift_1d(Halide::Func input, Halide::Expr n, std::string const& name = "ifftshift1d_rt")
+{
+    Halide::Func result(name);
+    Halide::Var x("x");
+
+    Halide::Expr half = n / 2;
+    Halide::Expr src_x = (x + half) % n;
+
+    result(x) = Halide::Tuple(input(src_x)[0], input(src_x)[1]);
+
+    return result;
+}
+
 /// @brief Inverse fftshift 2D (floor offsets per axis)
 inline
 Halide::Func ifftshift_2d(Halide::Func input, int rows, int cols, std::string const& name = "ifftshift2d")
@@ -495,6 +548,26 @@ Halide::Func ifftshift_2d(Halide::Func input, int rows, int cols, std::string co
 
     int half_cols = cols / 2;
     int half_rows = rows / 2;
+
+    Halide::Expr src_x = (x + half_cols) % cols;
+    Halide::Expr src_y = (y + half_rows) % rows;
+
+    result(x, y) = Halide::Tuple(input(src_x, src_y)[0], input(src_x, src_y)[1]);
+
+    return result;
+}
+
+/// @brief Inverse 2-D fftshift with RUNTIME sizes (floor offsets per
+/// axis, same as the int form). Pure gather — no compute_root needed.
+inline
+Halide::Func ifftshift_2d(Halide::Func input, Halide::Expr rows, Halide::Expr cols,
+                          std::string const& name = "ifftshift2d_rt")
+{
+    Halide::Func result(name);
+    Halide::Var x("x"), y("y");
+
+    Halide::Expr half_cols = cols / 2;
+    Halide::Expr half_rows = rows / 2;
 
     Halide::Expr src_x = (x + half_cols) % cols;
     Halide::Expr src_y = (y + half_rows) % rows;
