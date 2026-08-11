@@ -1,7 +1,8 @@
 /// @file reduce.h
 /// @brief Reduction operations for Halide::Func objects
 ///
-/// Provides: sum, mean, min, max, prod, argmin, argmax with axis control and keepdims
+/// Provides: sum, mean, min, max, prod, argmin, argmax with axis control and keepdims,
+/// plus runtime-axis argmin_axis / argmax_axis for 2-D arrays
 
 #pragma once
 
@@ -480,6 +481,109 @@ inline Halide::Func argmax(
     ret_idx(out_vars) = ret(out_vars)[1];
 
     return ret_idx;
+}
+
+// -----------------------------------------------------------------------------
+// Runtime-Axis Index of Extremum (2-D)
+// -----------------------------------------------------------------------------
+
+/// @brief argmin along a RUNTIME axis of a 2-D array.
+/// @param f    Input Func, 2-D, indexed f(x0, x1) with x0 innermost
+/// @param n0   Extent of dimension 0
+/// @param n1   Extent of dimension 1
+/// @param axis Runtime axis selector: axis == 0 reduces over dimension 0,
+///             anything else reduces over dimension 1
+/// @param type Compute type; elements are cast to it before comparing
+/// @param name Function name
+/// @return 1-D Int32 Func of extremum indices
+///
+/// OUTPUT LENGTH DEPENDS ON AXIS: axis == 0 yields n1 indices (one per x1),
+/// axis == 1 yields n0 indices (one per x0). The axis is a runtime value,
+/// so the helper cannot size the result itself — the CALLER's output buffer
+/// bounds the free coordinate.
+///
+/// Halide::argmin keeps the FIRST minimum on ties (strict compare against
+/// the running best), matching numpy and the compile-time argmin above.
+///
+/// Axis meaning differs from the compile-time argmin/argmax above: those
+/// use numpy shape-axis order (axis 0 = outermost = LAST Halide dimension);
+/// here axis 0 = Halide dimension 0.
+inline
+Halide::Func argmin_axis(Halide::Func f, Halide::Expr n0, Halide::Expr n1,
+                         Halide::Expr axis, Halide::Type type,
+                         std::string const& name = "argmin_axis_rt")
+{
+    Halide::Var k;
+
+    // BOTH fixed-axis scans are compute_root'd over the caller's k range
+    // (bounds inference unions the two select arms below), so the scan the
+    // axis does NOT select still evaluates f. The unconditional clamp on
+    // the free coordinate keeps that evaluation in-bounds when n0 != n1;
+    // no condition dominates the clamp, so the simplifier cannot prove it
+    // redundant and strip it (no CMOV out-of-bounds hazard). For the scan
+    // the axis DOES select, k is in-bounds and the clamp is the identity.
+    Halide::RDom r0(0, n0, "r0_" + name);
+    Halide::Func idx0(name + "_dim0");
+    idx0(k) = Halide::argmin(r0, Halide::cast(type, f(r0, Halide::clamp(k, 0, n1 - 1))))[0];
+    idx0.compute_root();
+
+    Halide::RDom r1(0, n1, "r1_" + name);
+    Halide::Func idx1(name + "_dim1");
+    idx1(k) = Halide::argmin(r1, Halide::cast(type, f(Halide::clamp(k, 0, n0 - 1), r1)))[0];
+    idx1.compute_root();
+
+    // The select reads the two REALIZED index buffers at the same in-bounds
+    // k — no clamped-read-inside-a-select-arm here, so no simplifier/CMOV
+    // out-of-bounds hazard on this read either.
+    Halide::Func ret(name);
+    ret(k) = Halide::select(axis == 0, idx0(k), idx1(k));
+    return ret;
+}
+
+/// @brief argmax along a RUNTIME axis of a 2-D array.
+/// @param f    Input Func, 2-D, indexed f(x0, x1) with x0 innermost
+/// @param n0   Extent of dimension 0
+/// @param n1   Extent of dimension 1
+/// @param axis Runtime axis selector: axis == 0 reduces over dimension 0,
+///             anything else reduces over dimension 1
+/// @param type Compute type; elements are cast to it before comparing
+/// @param name Function name
+/// @return 1-D Int32 Func of extremum indices
+///
+/// OUTPUT LENGTH DEPENDS ON AXIS: axis == 0 yields n1 indices (one per x1),
+/// axis == 1 yields n0 indices (one per x0). The axis is a runtime value,
+/// so the helper cannot size the result itself — the CALLER's output buffer
+/// bounds the free coordinate.
+///
+/// Halide::argmax keeps the FIRST maximum on ties (strict compare against
+/// the running best), matching numpy and the compile-time argmax above.
+///
+/// Axis meaning differs from the compile-time argmin/argmax above: those
+/// use numpy shape-axis order (axis 0 = outermost = LAST Halide dimension);
+/// here axis 0 = Halide dimension 0.
+inline
+Halide::Func argmax_axis(Halide::Func f, Halide::Expr n0, Halide::Expr n1,
+                         Halide::Expr axis, Halide::Type type,
+                         std::string const& name = "argmax_axis_rt")
+{
+    Halide::Var k;
+
+    // Same structure and bounds reasoning as argmin_axis above: both scans
+    // computed over the caller's k range, unconditional clamp on the free
+    // coordinate of the unselected scan, select over realized buffers.
+    Halide::RDom r0(0, n0, "r0_" + name);
+    Halide::Func idx0(name + "_dim0");
+    idx0(k) = Halide::argmax(r0, Halide::cast(type, f(r0, Halide::clamp(k, 0, n1 - 1))))[0];
+    idx0.compute_root();
+
+    Halide::RDom r1(0, n1, "r1_" + name);
+    Halide::Func idx1(name + "_dim1");
+    idx1(k) = Halide::argmax(r1, Halide::cast(type, f(Halide::clamp(k, 0, n0 - 1), r1)))[0];
+    idx1.compute_root();
+
+    Halide::Func ret(name);
+    ret(k) = Halide::select(axis == 0, idx0(k), idx1(k));
+    return ret;
 }
 
 // -----------------------------------------------------------------------------
