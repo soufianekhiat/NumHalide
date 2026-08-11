@@ -430,4 +430,202 @@ Halide::Func isin(Halide::Func elements, Halide::Func test_against,
     return ret;
 }
 
+// -----------------------------------------------------------------------------
+// Fixed-Size Positional / Zero-Fill Variants (RUNTIME sizes)
+// -----------------------------------------------------------------------------
+//
+// The functions below are the FIXED-SIZE positional encodings of the set
+// operations: the output has the same length as the (first) input, and set
+// membership is expressed in place — by keeping a value at its position or
+// writing 0 (or an Int32 0/1 mark). They exist for frameworks whose buffers
+// cannot change size at runtime; sizes are Halide::Expr, and the element
+// type is whatever the input Func carries (integer types included — no
+// float promotion happens here). The mask-Tuple forms above remain the
+// variable-size-style API (value, valid-mask); these do not replace them.
+
+/// @brief Count unique elements in a sorted array, RUNTIME size (0-D output)
+/// @param sorted_input Sorted 1D Func (any element type)
+/// @param n Number of elements as a runtime expression
+/// @param name Function name
+/// @return 0-D Int32 Func: 1 + number of adjacent transitions in the input
+///
+/// count = 1 + #{ r in [1, n) : sorted_input(r) != sorted_input(r-1) }.
+/// For n >= 1 this is the unique-element count of the sorted array. For
+/// n == 0 the reduction domain is empty and the result is still 1 — this
+/// fixed-size encoding has no way to signal an empty input, so callers must
+/// treat n == 0 as out of contract.
+inline
+Halide::Func count_unique(Halide::Func sorted_input, Halide::Expr n,
+                          std::string const& name = "count_unique_rt")
+{
+    Halide::Func ret(name);
+    Halide::RDom r(1, Halide::max(n - 1, 0), "r_" + name);
+
+    Halide::Expr is_diff =
+        Halide::cast<int32_t>(sorted_input(r) != sorted_input(r - 1));
+
+    ret() = Halide::cast<int32_t>(1) + Halide::sum(is_diff, "s_" + name);
+    return ret;
+}
+
+/// @brief Mark first occurrences in a sorted array, RUNTIME size
+/// @param sorted_input Sorted 1D Func (any element type)
+/// @param n Number of elements as a runtime expression
+/// @param name Function name
+/// @return 1-D Int32 Func: ret(0) = 1; ret(i) = sorted_input(i) != sorted_input(i-1)
+///
+/// Unlike the compile-time Tuple overload above, this returns the Int32
+/// marks ONLY (the values stay in the input). Both neighbor reads are
+/// clamped to [0, n-1] UNCONDITIONALLY — the clamp is not guarded by the
+/// select condition, so no simplification can strip it and turn the
+/// speculative i-1 read into an out-of-bounds access.
+inline
+Halide::Func mark_unique(Halide::Func sorted_input, Halide::Expr n,
+                         std::string const& name = "mark_unique_rt")
+{
+    Halide::Func ret(name);
+    Halide::Var x("x");
+
+    Halide::Expr cur  = sorted_input(Halide::clamp(x,     0, n - 1));
+    Halide::Expr prev = sorted_input(Halide::clamp(x - 1, 0, n - 1));
+
+    // ret[0] = 1 (first element always unique)
+    // ret[i] = 1 if sorted_input[i] != sorted_input[i-1], else 0
+    ret(x) = Halide::select(x == 0,
+                            Halide::cast<int32_t>(1),
+                            Halide::select(cur != prev,
+                                           Halide::cast<int32_t>(1),
+                                           Halide::cast<int32_t>(0)));
+    return ret;
+}
+
+/// @brief Unique elements of a sorted array, zero-fill positional form
+/// @param sorted_input Sorted 1D Func (any element type)
+/// @param n Number of elements as a runtime expression
+/// @param name Function name
+/// @return 1-D Func, same element type: sorted_input(i) at first occurrences,
+///         0 at duplicate positions
+///
+/// FIXED-SIZE variant of unique(): instead of compacting (which needs a
+/// variable-size output), duplicates are zeroed in place. The mask-Tuple /
+/// pad-with-last unique() above remains the variable-size-style API.
+inline
+Halide::Func unique_zerofill(Halide::Func sorted_input, Halide::Expr n,
+                             std::string const& name = "unique_zerofill")
+{
+    Halide::Func ret(name);
+    Halide::Var x("x");
+
+    Halide::Expr cur  = sorted_input(Halide::clamp(x,     0, n - 1));
+    Halide::Expr prev = sorted_input(Halide::clamp(x - 1, 0, n - 1));
+
+    // Keep value if first occurrence, zero it out if duplicate
+    ret(x) = Halide::select(x == 0,
+                            cur,
+                            Halide::select(cur != prev,
+                                           cur,
+                                           Halide::cast(cur.type(), 0)));
+    return ret;
+}
+
+/// @brief Element-wise membership test, RUNTIME set size
+/// @param values 1D Func of query values (any element type)
+/// @param test_set 1D Func of set elements (same element type)
+/// @param n_set Number of elements in test_set as a runtime expression
+/// @param name Function name
+/// @return 1-D Int32 Func: 1 if values(i) occurs anywhere in test_set, else 0
+///
+/// Linear count form: ret(i) = (#{ r : values(i) == test_set(r) } > 0).
+/// The scan never exploits ordering, so test_set may be sorted or unsorted —
+/// both give identical results.
+inline
+Halide::Func in1d(Halide::Func values, Halide::Func test_set,
+                  Halide::Expr n_set,
+                  std::string const& name = "in1d_rt")
+{
+    Halide::Func ret(name);
+    Halide::Var i("i");
+    Halide::RDom r(0, Halide::max(n_set, 0), "r_" + name);
+
+    ret(i) = Halide::cast<int32_t>(
+        Halide::sum(Halide::cast<int32_t>(values(i) == test_set(r)),
+                    "s_" + name) > 0);
+    return ret;
+}
+
+/// @brief Intersection, zero-fill positional form (RUNTIME size of b)
+/// @param a First 1D Func (any element type)
+/// @param b Second 1D Func (same element type)
+/// @param n_b Number of elements in b as a runtime expression
+/// @param name Function name
+/// @return 1-D Func, same element type and length as a:
+///         a(i) if a(i) occurs in b, else 0
+///
+/// FIXED-SIZE variant of intersect1d: membership is positional (keep or
+/// zero), the output length equals |a|, and the linear scan works for
+/// sorted and unsorted inputs alike.
+inline
+Halide::Func intersect1d_zerofill(Halide::Func a, Halide::Func b,
+                                  Halide::Expr n_b,
+                                  std::string const& name = "intersect1d_zerofill")
+{
+    Halide::Func ret(name);
+    Halide::Var i("i");
+    Halide::RDom r(0, Halide::max(n_b, 0), "r_" + name);
+
+    Halide::Expr found = Halide::cast<int32_t>(
+        Halide::sum(Halide::cast<int32_t>(a(i) == b(r)), "s_" + name) > 0);
+
+    Halide::Expr a_val = a(i);
+    ret(i) = Halide::select(found > 0, a_val, Halide::cast(a_val.type(), 0));
+    return ret;
+}
+
+/// @brief Set difference (a \ b), zero-fill positional form (RUNTIME size of b)
+/// @param a First 1D Func (any element type)
+/// @param b Second 1D Func (same element type)
+/// @param n_b Number of elements in b as a runtime expression
+/// @param name Function name
+/// @return 1-D Func, same element type and length as a:
+///         0 if a(i) occurs in b, else a(i)
+///
+/// FIXED-SIZE variant of setdiff1d: the complement of intersect1d_zerofill.
+/// Works for sorted and unsorted inputs alike.
+inline
+Halide::Func setdiff1d_zerofill(Halide::Func a, Halide::Func b,
+                                Halide::Expr n_b,
+                                std::string const& name = "setdiff1d_zerofill")
+{
+    Halide::Func ret(name);
+    Halide::Var i("i");
+    Halide::RDom r(0, Halide::max(n_b, 0), "r_" + name);
+
+    Halide::Expr in_b = Halide::cast<int32_t>(
+        Halide::sum(Halide::cast<int32_t>(a(i) == b(r)), "s_" + name) > 0);
+
+    Halide::Expr a_val = a(i);
+    ret(i) = Halide::select(in_b > 0, Halide::cast(a_val.type(), 0), a_val);
+    return ret;
+}
+
+/// @brief Positional union: element-wise maximum of two same-length arrays
+/// @param a First 1D Func (any element type)
+/// @param b Second 1D Func (same element type and length)
+/// @param name Function name
+/// @return 1-D Func, same element type: max(a(i), b(i))
+///
+/// FIXED-SIZE stand-in for a set union: a true union needs a variable-size
+/// output, so this positional encoding takes the element-wise maximum of
+/// two equal-length arrays instead. No size argument is needed — the
+/// operation is pointwise.
+inline
+Halide::Func union1d_positional(Halide::Func a, Halide::Func b,
+                                std::string const& name = "union1d_positional")
+{
+    Halide::Func ret(name);
+    Halide::Var i("i");
+    ret(i) = Halide::max(a(i), b(i));
+    return ret;
+}
+
 NS_NUM_HALIDE_END
