@@ -65,6 +65,97 @@ inline Halide::Func rand_choice(Halide::Type type, const shape_t& shape, Halide:
 }
 
 // -----------------------------------------------------------------------------
+// Runtime Typed Overloads (1-D, Var-indexed stream)
+// -----------------------------------------------------------------------------
+//
+// Unlike the shape_t forms above (hash_coords(seed) -> random_float(hash)),
+// these use Halide's stateless Var-indexed random_float(x) directly: no seed
+// and no shape parameter, 1-D only — the caller bounds the Var through the
+// realization extent. The draw stream therefore depends on pipeline
+// construction order, but each recipe is distribution-identical to its
+// shape_t counterpart. Default names carry a _rt suffix so a pipeline can
+// hold both a compile-time and a runtime form without a Func-name clash.
+
+/// @brief Uniform random values in [low, high), RUNTIME bounds, 1-D
+/// @param type Output type; the affine map is computed in this type
+/// @param low Lower bound (inclusive), cast to type
+/// @param high Upper bound (exclusive), cast to type
+/// @param name Function name
+/// @return 1-D Func: ret(x) = low + u * (high - low), u ~ U[0, 1)
+inline
+Halide::Func rand_uniform(Halide::Type type, Halide::Expr low, Halide::Expr high,
+                          std::string const& name = "rand_uniform_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var x;
+	Halide::Expr u      = Halide::cast(type, Halide::random_float(x));
+	Halide::Expr low_c  = Halide::cast(type, low);
+	Halide::Expr high_c = Halide::cast(type, high);
+	ret(x) = low_c + u * (high_c - low_c);
+	return ret;
+}
+
+/// @brief Bernoulli random values, RUNTIME probability, 1-D
+/// @param type Output type of the 0/1 outcome
+/// @param p Probability of 1, compared in Float(32)
+/// @param name Function name
+/// @return 1-D Func: ret(x) = (u < p) ? 1 : 0 in type, u ~ U[0, 1)
+///
+/// The comparison runs in Float(32) — the RNG's native resolution — and only
+/// the 0/1 outcome is produced in `type`, so integer output types are safe.
+inline
+Halide::Func rand_bernoulli(Halide::Type type, Halide::Expr p,
+                            std::string const& name = "rand_bernoulli_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var x;
+	Halide::Expr u = Halide::random_float(x);
+	ret(x) = Halide::select(u < Halide::cast(Halide::Float(32), p),
+	                        Halide::Internal::make_const(type, 1),
+	                        Halide::Internal::make_const(type, 0));
+	return ret;
+}
+
+/// @brief Exponential random values via inverse CDF, RUNTIME rate, 1-D
+/// @param type Output type; log and division are computed in this type
+/// @param lambda Rate parameter (> 0), cast to type
+/// @param name Function name
+/// @return 1-D Func: ret(x) = -log(clamp(u, 0.001, 0.999)) / lambda
+///
+/// The clamp guards log(0): u == 0 occurs with nonzero probability in a
+/// float32 stream and would produce +inf. The cost is a slight, deliberate
+/// distribution bias — the upper tail is truncated at -ln(0.001)/lambda
+/// (~6.9/lambda) and the smallest draw is -ln(0.999)/lambda (~0.001/lambda),
+/// pulling the mean ~0.1% below the exact 1/lambda.
+inline
+Halide::Func rand_exponential(Halide::Type type, Halide::Expr lambda,
+                              std::string const& name = "rand_exp_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var x;
+	Halide::Expr u = Halide::clamp(Halide::cast(type, Halide::random_float(x)),
+	                               Halide::Internal::make_const(type, 0.001),
+	                               Halide::Internal::make_const(type, 0.999));
+	ret(x) = -Halide::log(u) / Halide::cast(type, lambda);
+	return ret;
+}
+
+/// @brief Uniform random integers in [0, n), RUNTIME n, 1-D, Int32 output
+/// @param n Upper bound (exclusive), cast to Float(32) for the draw
+/// @param name Function name
+/// @return 1-D Int32 Func: ret(x) = cast<int32_t>(floor(u * n)), u ~ U[0, 1)
+inline
+Halide::Func rand_choice(Halide::Expr n,
+                         std::string const& name = "rand_choice_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var x;
+	Halide::Expr u = Halide::random_float(x);
+	ret(x) = Halide::cast<int32_t>(Halide::floor(u * Halide::cast<float>(n)));
+	return ret;
+}
+
+// -----------------------------------------------------------------------------
 // Additional Random Distributions
 // -----------------------------------------------------------------------------
 
