@@ -7,6 +7,7 @@
 
 #include "common.h"
 #include "shape.h"
+#include "numeric.h" // i0_expr for the runtime kaiser overload
 
 NS_NUM_HALIDE_BEGIN
 
@@ -86,6 +87,12 @@ inline Halide::Expr bessel_i0_approx(Halide::Expr x) {
 ///
 /// Kaiser window: w(n) = I0(beta * sqrt(1 - (2n/(N-1) - 1)^2)) / I0(beta)
 /// where I0 is approximated by the first 6 terms of its series expansion.
+///
+/// @note The 6-term truncated series drifts from the true Bessel I0 as beta
+/// grows (the truncation error is beta-dependent and does not cancel in the
+/// ratio). The runtime overload below uses the Abramowitz & Stegun i0_expr
+/// (~1e-7 for all x) and is the A&S-accurate form; prefer it when Bessel
+/// conformance matters. This overload keeps its historical behavior.
 inline Halide::Func kaiser(int size, float beta = 12.0f, std::string const& name = "kaiser") {
 	Halide::Func ret(name);
 	Halide::Var x;
@@ -100,6 +107,39 @@ inline Halide::Func kaiser(int size, float beta = 12.0f, std::string const& name
 	// I0(arg) / I0(beta)
 	Halide::Expr i0_beta = bessel_i0_approx(Halide::Expr(beta));
 	ret(x) = bessel_i0_approx(arg) / i0_beta;
+	return ret;
+}
+
+/// @brief Kaiser window, RUNTIME size and beta, computed in `type`
+/// @param n Window size (runtime Expr)
+/// @param beta Shape parameter (runtime Expr), cast to type
+/// @param type Computation and output type (e.g. Float(32), Float(64))
+/// @param name Function name (default carries the _rt suffix so a pipeline
+///        can hold both the compile-time and runtime forms without a
+///        Func-name clash)
+/// @return 1D Halide::Func: w(i) = I0(beta * sqrt(1 - ((2i/(n-1)) - 1)^2)) / I0(beta)
+///
+/// numpy.kaiser symmetric form, with I0 the Abramowitz & Stegun i0_expr
+/// (~1e-7 for all x) — unlike the compile-time overload above, whose
+/// 6-term truncated series deviates from the true Bessel ratio at large
+/// beta. Endpoints: w(0) = w(n-1) = 1 / I0(beta), center (odd n) = 1.
+inline Halide::Func kaiser(Halide::Expr n, Halide::Expr beta, Halide::Type type,
+                           std::string const& name = "kaiser_rt") {
+	Halide::Func ret(name);
+	Halide::Var x;
+	Halide::Expr one = Halide::Internal::make_one(type);
+	Halide::Expr two = Halide::Internal::make_const(type, 2);
+	Halide::Expr fi = Halide::cast(type, x);
+	Halide::Expr fn = Halide::cast(type, n - 1);
+	Halide::Expr fb = Halide::cast(type, beta);
+	// t = 2*i/(n-1) - 1, ranges over [-1, 1]
+	Halide::Expr t = two * fi / fn - one;
+	// 1 - t^2 can go epsilon-negative at the endpoints: when n-1 is not a
+	// power of two, t = fl(fl(2i/(n-1)) - 1) lands just outside [-1, 1] and
+	// the sqrt of the tiny negative residue would be NaN — clamp to >= 0.
+	Halide::Expr inner = Halide::max(one - t * t, Halide::Internal::make_zero(type));
+	Halide::Expr arg = fb * Halide::sqrt(inner);
+	ret(x) = i0_expr(arg) / i0_expr(fb);
 	return ret;
 }
 

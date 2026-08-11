@@ -114,16 +114,18 @@ Halide::Func trapz_1d(Halide::Func f, Halide::Func x, int n,
 // Modified Bessel Function of the First Kind, Order 0
 // -----------------------------------------------------------------------------
 
-/// @brief Compute I0(x) element-wise using Abramowitz & Stegun polynomial approximation
+/// @brief I0(x) as a scalar Expr, Abramowitz & Stegun polynomial approximation
 /// @note Accurate to ~1e-7 for all x
+///
+/// Expr-level form so window code (kaiser) can use the A&S approximation
+/// without the shape_t Func wrapper; the Func form i0() below delegates
+/// here. Computed in the type of v — the float-literal coefficients are
+/// constants, so Halide's match_types promotes them to the operand type
+/// (e.g. Float(64) input stays Float(64) throughout).
 inline
-Halide::Func i0(Halide::Func f, const shape_t& shape,
-    std::string const& name = "i0")
+Halide::Expr i0_expr(Halide::Expr v)
 {
-    Halide::Func ret(name);
-    std::vector<Halide::Var> vars;
-    for (int i = 0; i < shape.rank; ++i) vars.push_back(Halide::Var());
-    Halide::Expr x = Halide::abs(f(vars));
+    Halide::Expr x = Halide::abs(v);
 
     // For |x| <= 3.75: Horner form in t2 = (x/3.75)^2
     Halide::Expr t2 = (x / 3.75f) * (x / 3.75f);
@@ -137,7 +139,19 @@ Halide::Func i0(Halide::Func f, const shape_t& shape,
         + y * (0.02635537f + y * (-0.01647633f + y * 0.00392377f)))))));
     Halide::Expr large = (Halide::exp(x) / Halide::sqrt(x)) * poly;
 
-    ret(vars) = Halide::select(x <= 3.75f, small, large);
+    return Halide::select(x <= 3.75f, small, large);
+}
+
+/// @brief Compute I0(x) element-wise using Abramowitz & Stegun polynomial approximation
+/// @note Accurate to ~1e-7 for all x; delegates to i0_expr (value-identical)
+inline
+Halide::Func i0(Halide::Func f, const shape_t& shape,
+    std::string const& name = "i0")
+{
+    Halide::Func ret(name);
+    std::vector<Halide::Var> vars;
+    for (int i = 0; i < shape.rank; ++i) vars.push_back(Halide::Var());
+    ret(vars) = i0_expr(f(vars));
     return ret;
 }
 
