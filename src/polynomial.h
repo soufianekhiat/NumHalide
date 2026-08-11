@@ -46,6 +46,114 @@ Halide::Func polyval(Halide::Func coeffs, int n_coeffs, Halide::Func x_func, con
 	return ret;
 }
 
+/// @brief Evaluate a polynomial with a RUNTIME coefficient count (1-D x)
+/// @param coeffs 1D Func, highest degree first (NumPy convention)
+/// @param n_coeffs Number of coefficients as a runtime expression
+/// @param x_func 1D Func of evaluation points
+/// @param name Function name
+/// @return 1D Func of evaluated values
+///
+/// A pure power-sum reduction, NOT a sequential Horner scan: reverse-mode
+/// AD cannot differentiate a self-referential update without stored
+/// intermediates ("use a scan" error), while a plain sum derives
+/// directly. result = sum_r c[r] * x^(n-1-r). The compile-time overload
+/// above remains for multi-rank x (and uses Horner).
+inline
+Halide::Func polyval(Halide::Func coeffs, Halide::Expr n_coeffs, Halide::Func x_func,
+	std::string const& name = "polyval_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var x("x");
+	Halide::Type type = coeffs.types()[0];
+
+	Halide::RDom r(0, Halide::max(n_coeffs, 0), "r_" + name);
+	Halide::Expr xv = Halide::cast(type, x_func(x));
+	ret(x) = Halide::sum(coeffs(r) *
+		Halide::pow(xv, Halide::cast(type, n_coeffs - 1 - r)), "s_" + name);
+
+	return ret;
+}
+
+/// @brief Polynomial derivative with a RUNTIME coefficient count
+/// @param a 1D Func, highest degree first
+/// @param na Number of coefficients as a runtime expression
+/// @return Coefficients of the derivative (size na-1)
+///
+/// a[i] has power (na-1-i); d[i] = a[i] * (na-1-i) for i in [0, na-2].
+inline
+Halide::Func polyder(Halide::Func a, Halide::Expr na,
+	std::string const& name = "polyder_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var i("i");
+	Halide::Type type = a.types()[0];
+	ret(i) = a(Halide::clamp(i, 0, Halide::max(na - 2, 0))) *
+		Halide::cast(type, na - 1 - i);
+	return ret;
+}
+
+/// @brief Polynomial integral with a RUNTIME coefficient count
+/// @param a 1D Func, highest degree first
+/// @param na Number of coefficients as a runtime expression
+/// @param k Integration constant (lands at index na, the new lowest term)
+/// @return Coefficients of the integral (size na+1)
+///
+/// Guard discipline: multiplied 0/1 indicator with an unconditional
+/// clamp and a floored divisor (see polymul).
+inline
+Halide::Func polyint(Halide::Func a, Halide::Expr na, Halide::Expr k,
+	std::string const& name = "polyint_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var i("i");
+	Halide::Type type = a.types()[0];
+	Halide::Expr valid = i < na;
+	ret(i) = a(Halide::clamp(i, 0, Halide::max(na - 1, 0))) /
+			 Halide::cast(type, Halide::max(na - i, 1)) *
+			 Halide::cast(type, valid) +
+			 Halide::cast(type, k) * Halide::cast(type, !valid);
+	return ret;
+}
+
+/// @brief Polynomial sum with RUNTIME coefficient counts
+/// (highest-first alignment; see the compile-time overload)
+inline
+Halide::Func polyadd(Halide::Func a, Halide::Expr na, Halide::Func b, Halide::Expr nb,
+	std::string const& name = "polyadd_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var i("i");
+	Halide::Type type = a.types()[0];
+	Halide::Expr nout = Halide::max(na, nb);
+	Halide::Expr ai = i - (nout - na);
+	Halide::Expr bi = i - (nout - nb);
+	Halide::Expr aval = a(Halide::clamp(ai, 0, Halide::max(na - 1, 0))) *
+		Halide::cast(type, ai >= 0 && ai < na);
+	Halide::Expr bval = b(Halide::clamp(bi, 0, Halide::max(nb - 1, 0))) *
+		Halide::cast(type, bi >= 0 && bi < nb);
+	ret(i) = aval + bval;
+	return ret;
+}
+
+/// @brief Polynomial difference with RUNTIME coefficient counts: a - b
+inline
+Halide::Func polysub(Halide::Func a, Halide::Expr na, Halide::Func b, Halide::Expr nb,
+	std::string const& name = "polysub_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var i("i");
+	Halide::Type type = a.types()[0];
+	Halide::Expr nout = Halide::max(na, nb);
+	Halide::Expr ai = i - (nout - na);
+	Halide::Expr bi = i - (nout - nb);
+	Halide::Expr aval = a(Halide::clamp(ai, 0, Halide::max(na - 1, 0))) *
+		Halide::cast(type, ai >= 0 && ai < na);
+	Halide::Expr bval = b(Halide::clamp(bi, 0, Halide::max(nb - 1, 0))) *
+		Halide::cast(type, bi >= 0 && bi < nb);
+	ret(i) = aval - bval;
+	return ret;
+}
+
 // -----------------------------------------------------------------------------
 // Chebyshev Polynomials
 // -----------------------------------------------------------------------------
