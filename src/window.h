@@ -18,11 +18,11 @@ NS_NUM_HALIDE_BEGIN
 /// @param size Window size
 /// @param name Function name
 /// @return 1D Halide::Func of float values
-inline Halide::Func hanning(int size, std::string const& name = "hanning") {
+inline Halide::Func hanning(Halide::Expr size, std::string const& name = "hanning") {
 	Halide::Func ret(name);
 	Halide::Var x;
 	float pi = 3.14159265358979323846f;
-	ret(x) = 0.5f * (1.0f - Halide::cos(2.0f * pi * Halide::cast<float>(x) / (size - 1)));
+	ret(x) = 0.5f * (1.0f - Halide::cos(2.0f * pi * Halide::cast<float>(x) / Halide::cast<float>(size - 1)));
 	return ret;
 }
 
@@ -30,11 +30,11 @@ inline Halide::Func hanning(int size, std::string const& name = "hanning") {
 /// @param size Window size
 /// @param name Function name
 /// @return 1D Halide::Func of float values
-inline Halide::Func hamming(int size, std::string const& name = "hamming") {
+inline Halide::Func hamming(Halide::Expr size, std::string const& name = "hamming") {
 	Halide::Func ret(name);
 	Halide::Var x;
 	float pi = 3.14159265358979323846f;
-	ret(x) = 0.54f - 0.46f * Halide::cos(2.0f * pi * Halide::cast<float>(x) / (size - 1));
+	ret(x) = 0.54f - 0.46f * Halide::cos(2.0f * pi * Halide::cast<float>(x) / Halide::cast<float>(size - 1));
 	return ret;
 }
 
@@ -42,12 +42,12 @@ inline Halide::Func hamming(int size, std::string const& name = "hamming") {
 /// @param size Window size
 /// @param name Function name
 /// @return 1D Halide::Func of float values
-inline Halide::Func blackman(int size, std::string const& name = "blackman") {
+inline Halide::Func blackman(Halide::Expr size, std::string const& name = "blackman") {
 	Halide::Func ret(name);
 	Halide::Var x;
 	float pi = 3.14159265358979323846f;
 	Halide::Expr n = Halide::cast<float>(x);
-	Halide::Expr N = static_cast<float>(size - 1);
+	Halide::Expr N = Halide::cast<float>(size - 1);
 	ret(x) = 0.42f - 0.5f * Halide::cos(2.0f * pi * n / N) + 0.08f * Halide::cos(4.0f * pi * n / N);
 	return ret;
 }
@@ -56,10 +56,10 @@ inline Halide::Func blackman(int size, std::string const& name = "blackman") {
 /// @param size Window size
 /// @param name Function name
 /// @return 1D Halide::Func of float values
-inline Halide::Func bartlett(int size, std::string const& name = "bartlett") {
+inline Halide::Func bartlett(Halide::Expr size, std::string const& name = "bartlett") {
 	Halide::Func ret(name);
 	Halide::Var x;
-	ret(x) = 1.0f - Halide::abs(2.0f * Halide::cast<float>(x) / (size - 1) - 1.0f);
+	ret(x) = 1.0f - Halide::abs(2.0f * Halide::cast<float>(x) / Halide::cast<float>(size - 1) - 1.0f);
 	return ret;
 }
 
@@ -90,7 +90,7 @@ inline Halide::Func kaiser(int size, float beta = 12.0f, std::string const& name
 	Halide::Func ret(name);
 	Halide::Var x;
 	Halide::Expr n = Halide::cast<float>(x);
-	Halide::Expr N = static_cast<float>(size - 1);
+	Halide::Expr N = Halide::cast<float>(size - 1);
 	// t = 2*n/(N-1) - 1, ranges from -1 to 1
 	Halide::Expr t = 2.0f * n / N - 1.0f;
 	// arg = beta * sqrt(1 - t^2)

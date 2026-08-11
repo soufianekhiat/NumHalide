@@ -283,7 +283,7 @@ Halide::Func bitonic_argsort(Halide::Func input, int size, std::string const& na
 /// Uses rank sort (counting sort variant): O(n^2) but works for any size.
 /// For power-of-2 sizes with better performance, use bitonic_sort.
 inline
-Halide::Func sort_1d(Halide::Func f, int n, bool ascending = true,
+Halide::Func sort_1d(Halide::Func f, Halide::Expr n, bool ascending = true,
     std::string const& name = "sort_1d")
 {
     Halide::Var i("i");
@@ -326,7 +326,7 @@ Halide::Func sort_1d(Halide::Func f, int n, bool ascending = true,
 /// @param name Function name
 /// @return 1D Int32 Func with indices
 inline
-Halide::Func argsort_1d(Halide::Func f, int n, bool ascending = true,
+Halide::Func argsort_1d(Halide::Func f, Halide::Expr n, bool ascending = true,
     std::string const& name = "argsort_1d")
 {
     Halide::Var i("i");

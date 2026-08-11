@@ -578,15 +578,22 @@ Halide::Func det2x2(Halide::Func mat, std::string const& name = "det")
 /// @param mat 2x2 matrix
 /// @param name Function name
 /// @return Inverted 2x2 matrix
+/// @param zero_on_singular When true, a singular matrix (det == 0) yields
+///        the ZERO matrix instead of inf/NaN entries.
 inline
-Halide::Func inv2x2(Halide::Func mat, std::string const& name = "inv")
+Halide::Func inv2x2(Halide::Func mat, std::string const& name = "inv",
+	bool zero_on_singular = false)
 {
 	Halide::Func ret(name);
 	Halide::Var x("x"), y("y");
 
 	// For [[a,b],[c,d]], inv = 1/det * [[d,-b],[-c,a]]
+	Halide::Type type = mat.types()[0];
 	Halide::Expr det = mat(0, 0) * mat(1, 1) - mat(1, 0) * mat(0, 1);
-	Halide::Expr inv_det = Halide::cast<float>(1) / det;
+	Halide::Expr inv_det = Halide::cast(type, 1) / det;
+	if (zero_on_singular)
+		inv_det = Halide::select(det != Halide::cast(type, 0),
+			inv_det, Halide::cast(type, 0));
 
 	ret(x, y) = Halide::select(
 		x == 0 && y == 0, inv_det * mat(1, 1),
@@ -897,8 +904,11 @@ Halide::Func normalize(Halide::Func f, const shape_t& shape, int axis = -1,
 /// mat(x,y) layout: a=mat(0,0) b=mat(1,0) c=mat(2,0)
 ///                  d=mat(0,1) e=mat(1,1) f=mat(2,1)
 ///                  g=mat(0,2) h=mat(1,2) i=mat(2,2)
+/// @param zero_on_singular When true, a singular matrix (det == 0) yields
+///        the ZERO matrix instead of inf/NaN entries.
 inline
-Halide::Func inv3x3(Halide::Func mat, std::string const& name = "inv3x3")
+Halide::Func inv3x3(Halide::Func mat, std::string const& name = "inv3x3",
+    bool zero_on_singular = false)
 {
     Halide::Var x("x"), y("y");
 
@@ -906,8 +916,12 @@ Halide::Func inv3x3(Halide::Func mat, std::string const& name = "inv3x3")
     Halide::Expr d = mat(0,1), e = mat(1,1), f = mat(2,1);
     Halide::Expr g = mat(0,2), h = mat(1,2), ii = mat(2,2);
 
+    Halide::Type type = mat.types()[0];
     Halide::Expr det = a*(e*ii - f*h) - b*(d*ii - f*g) + c*(d*h - e*g);
-    Halide::Expr inv_det = 1.0f / det;
+    Halide::Expr inv_det = Halide::cast(type, 1) / det;
+    if (zero_on_singular)
+        inv_det = Halide::select(det != Halide::cast(type, 0),
+            inv_det, Halide::cast(type, 0));
 
     // inv(col=x, row=y) = adj[y,x] / det = cofactor[x,y] / det
     // Each entry: cofactor C[r,c] = (-1)^(r+c) * minor_det

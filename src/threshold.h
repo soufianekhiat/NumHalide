@@ -31,7 +31,10 @@ Halide::Func threshold_binary(Halide::Func f, const shape_t& shape, Halide::Expr
 		vars.push_back(Halide::Var());
 	}
 
-	ret(vars) = Halide::select(f(vars) > thresh, 1.0f, 0.0f);
+	// Emit in the input's own type (f32-hardcoding breaks f64/half combos).
+	Halide::Type type = f.types()[0];
+	ret(vars) = Halide::select(f(vars) > Halide::cast(type, thresh),
+		Halide::cast(type, 1), Halide::cast(type, 0));
 	return ret;
 }
 
@@ -50,7 +53,8 @@ Halide::Func threshold_trunc(Halide::Func f, const shape_t& shape, Halide::Expr 
 		vars.push_back(Halide::Var());
 	}
 
-	ret(vars) = Halide::min(f(vars), thresh);
+	Halide::Type type = f.types()[0];
+	ret(vars) = Halide::min(f(vars), Halide::cast(type, thresh));
 	return ret;
 }
 
@@ -69,7 +73,9 @@ Halide::Func threshold_tozero(Halide::Func f, const shape_t& shape, Halide::Expr
 		vars.push_back(Halide::Var());
 	}
 
-	ret(vars) = Halide::select(f(vars) > thresh, f(vars), 0.0f);
+	Halide::Type type = f.types()[0];
+	ret(vars) = Halide::select(f(vars) > Halide::cast(type, thresh),
+		f(vars), Halide::cast(type, 0));
 	return ret;
 }
 
