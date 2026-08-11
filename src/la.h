@@ -1365,28 +1365,43 @@ inline Halide::Func back_sub(Halide::Func R, Halide::Func y, int n,
 /// @param b  1D n-vector Func
 /// @param n  System size
 /// @return   1D solution Func y(i)
+/// @param eps When > 0, a diagonal pivot with |L[k,k]| <= eps is replaced by 1
+///            for the division (finite fallback instead of inf/NaN).
+///            0 keeps the unguarded behavior.
+///
+/// Computes in L's element type (f32, f64, ...).
 inline Halide::Func fwd_sub(Halide::Func L, Halide::Func b, int n,
-    std::string const& name = "fwd_sub")
+    std::string const& name = "fwd_sub", float eps = 0.0f)
 {
     Halide::Var i("i");
+
+    Halide::Type type = L.types()[0];
+    Halide::Expr zero = Halide::cast(type, 0);
+    Halide::Expr eps_e = Halide::cast(type, Halide::Expr(static_cast<double>(eps)));
+
     Halide::Func y_cur(name + "_y0");
-    y_cur(i) = 0.0f;
+    y_cur(i) = zero;
     y_cur.compute_root();
 
     for (int k = 0; k < n; ++k) {
         std::string sk = std::to_string(k);
 
         Halide::Func dot(name + "_dot" + sk);
-        dot() = 0.0f;
+        dot() = zero;
         if (k > 0) {
             Halide::RDom rj(0, k, "rjfs" + sk);
             dot() += L(rj, k) * y_cur(rj);
         }
         dot.compute_root();
 
+        Halide::Expr lkk = L(k, k);
+        if (eps > 0.0f)
+            lkk = Halide::select(Halide::abs(lkk) > eps_e, lkk,
+                Halide::cast(type, 1));
+
         Halide::Func y_next(name + "_yk" + sk);
         y_next(i) = y_cur(i);
-        y_next(k) = (b(k) - dot()) / L(k, k);
+        y_next(k) = (b(k) - dot()) / lkk;
         y_next.compute_root();
         y_cur = y_next;
     }
