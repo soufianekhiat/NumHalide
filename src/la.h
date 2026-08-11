@@ -771,6 +771,20 @@ Halide::Func kron(Halide::Func a, const shape_t& shape_a,
     return ret;
 }
 
+/// @brief Kronecker product with RUNTIME b extents, buffer-axis form:
+/// ret(x, y) = a(x / b_d0, y / b_d1) * b(x % b_d0, y % b_d1)
+/// (b_d0/b_d1 are b's extents along dims 0/1; output extents flow from
+/// the realization.)
+inline
+Halide::Func kron(Halide::Func a, Halide::Func b, Halide::Expr b_d0, Halide::Expr b_d1,
+    std::string const& name = "kron_rt")
+{
+    Halide::Func ret(name);
+    Halide::Var x("x"), y("y");
+    ret(x, y) = a(x / b_d0, y / b_d1) * b(x % b_d0, y % b_d1);
+    return ret;
+}
+
 /// @brief Output shape for kron
 inline shape_t infer_kron(const shape_t& a, const shape_t& b) {
     nh_require(a.rank == 2 && b.rank == 2, "kron requires 2D matrices");
