@@ -1,7 +1,8 @@
 /// @file rfft.h
 /// @brief Real FFT extensions and frequency utilities
 ///
-/// Provides: rfft, irfft, rfft2d, irfft2d, fftfreq, rfftfreq
+/// Provides: rfft, irfft (int-N and runtime-Expr forms), rfft2d, irfft2d,
+/// fftfreq, rfftfreq
 
 #pragma once
 
@@ -17,71 +18,159 @@ NS_NUM_HALIDE_BEGIN
 
 /// @brief Real-input 1D FFT returning complex output of size N/2+1
 /// @param input Real-valued 1D Func (not Tuple)
-/// @param N Size of transform (must be power of 2)
+/// @param N Size of transform (any size — the underlying c2c form is a
+///        direct DFT)
 /// @param name Function name
 /// @return Complex Func (Tuple of real, imag) with N/2+1 meaningful bins
 ///
 /// Takes a real 1D signal, converts to complex, runs full FFT, and returns
 /// the result. For real input, only the first N/2+1 bins are unique due to
 /// conjugate symmetry: X[k] = conj(X[N-k]).
+///
+/// Type-preserving (real_to_complex rule): float inputs keep their type
+/// (f64 stays f64); integer inputs are promoted to f32.
 inline
 Halide::Func rfft(Halide::Func input, int N, std::string const& name = "rfft")
 {
-	nh_require((N & (N - 1)) == 0, "rfft requires power of 2 size, got %d", N);
+	nh_require(N > 0, "rfft requires N > 0, got %d", N);
 
-	// Convert real input to complex (imaginary = 0)
-	Halide::Func complex_in("rfft_cin");
-	Halide::Var x;
-	complex_in(x) = Halide::Tuple(Halide::cast<float>(input(x)), 0.0f);
+	// Convert real input to complex (imaginary = 0), preserving float types
+	Halide::Func complex_in = real_to_complex(input, name + "_cin");
 
 	// Full FFT
 	auto full = fft(complex_in, N, name + "_full");
 
 	// Return the full result; user reads bins [0, N/2+1)
 	Halide::Func ret(name);
+	Halide::Var x;
 	ret(x) = full(x);
 	return ret;
 }
 
+/// @brief Real-input 1D DFT with a RUNTIME size
+/// @param real_input Real-valued 1D Func (not Tuple)
+/// @param n Size of transform as a runtime expression (any size)
+/// @param type Floating-point type to compute in (e.g. Halide::Float(32))
+/// @param name Function name
+/// @return Complex Func (Tuple of real, imag); caller reads bins [0, n/2+1)
+///
+/// Direct sum over the real samples:
+///   angle = -2*pi*k*r/n
+///   re    = sum(sample * cos(angle))
+///   im    = sum(sample * sin(angle))
+/// The result is compute_root'd (reduction — chaining rule).
+inline
+Halide::Func rfft(Halide::Func real_input, Halide::Expr n, Halide::Type type,
+                  std::string const& name = "rfft_rt")
+{
+	nh_require(type.is_float(), "rfft compute type must be a float type");
+
+	Halide::Func result(name);
+	Halide::Var k("k");
+	Halide::RDom r(0, n);
+
+	Halide::Expr angle = Halide::Internal::make_const(type, -2.0 * M_PI) *
+	                     Halide::cast(type, k) * Halide::cast(type, r) /
+	                     Halide::cast(type, n);
+	Halide::Expr sample = Halide::cast(type, real_input(r));
+
+	result(k) = Halide::Tuple(Halide::sum(sample * Halide::cos(angle)),
+	                          Halide::sum(sample * Halide::sin(angle)));
+	result.compute_root();
+
+	return result;
+}
+
 /// @brief Inverse real FFT: takes N/2+1 complex bins, returns N real values
 /// @param input Complex Func with N/2+1 bins (Tuple of real, imag)
-/// @param N Original signal size (must be power of 2)
+/// @param N Original signal size (any size; the weighted form is exact for
+///        the documented contract — a true Hermitian half-spectrum with
+///        real DC and Nyquist, i.e. even N)
 /// @param name Function name
 /// @return Real-valued 1D Func of size N
 ///
-/// Reconstructs full spectrum using conjugate symmetry:
-///   X[k] for k < N/2+1 is input(k)
-///   X[k] for k >= N/2+1 is conj(X[N-k])
-/// Then applies normalized inverse FFT and returns real part.
+/// Bounded Hermitian weighted sum — reads ONLY bins [0, K), K = N/2+1:
+///   x[i] = (1/N) * sum_{r=0}^{K-1} weight(r) *
+///          (re(r)*cos(2*pi*r*i/N) - im(r)*sin(2*pi*r*i/N))
+///   weight = 1 for r==0 and r==K-1 (DC and Nyquist), else 2.
+/// Value-identical to the old conjugate-symmetry reconstruction for the
+/// documented contract. The old select body read input(N - x), so bounds
+/// inference over both branches requested input over [0, N] — N+1 elements
+/// from a buffer documented to hold K bins.
+/// Float inputs keep their type; integer inputs promote to f32.
 inline
 Halide::Func irfft(Halide::Func input, int N, std::string const& name = "irfft")
 {
-	nh_require((N & (N - 1)) == 0, "irfft requires power of 2 size, got %d", N);
+	nh_require(N > 0, "irfft requires N > 0, got %d", N);
 
-	int half = N / 2 + 1;
+	int const K = N / 2 + 1;
 
-	Halide::Func full_spectrum("irfft_full");
-	Halide::Var x;
+	Halide::Type t = input.types()[0];
+	if (!t.is_float()) t = Halide::Float(32);
 
-	// Reconstruct full spectrum via conjugate symmetry
-	// X[k] for k < half comes from input directly
-	// X[k] for k >= half: X[k] = conj(X[N-k])
-	Halide::Expr k = x;
-	Halide::Expr mirror = N - x;
-
-	full_spectrum(x) = Halide::select(
-		k < half,
-		Halide::Tuple(input(k)[0], input(k)[1]),
-		Halide::Tuple(input(mirror)[0], -input(mirror)[1])
-	);
-
-	// Normalized inverse FFT
-	auto result = ifft_normalized(full_spectrum, N, name + "_ifft");
-
-	// Return real part only
 	Halide::Func ret(name);
-	ret(x) = result(x)[0];
+	Halide::Var x;
+	Halide::RDom r(0, K);
+
+	Halide::Expr angle = Halide::Internal::make_const(t, 2.0 * M_PI) *
+	                     Halide::cast(t, r) * Halide::cast(t, x) /
+	                     Halide::Internal::make_const(t, (double)N);
+	Halide::Expr re = Halide::cast(t, input(r)[0]);
+	Halide::Expr im = Halide::cast(t, input(r)[1]);
+	// Weight: 1 for DC and Nyquist (r==0 and r==K-1), 2 for all others
+	Halide::Expr weight = Halide::select(
+		r == 0 || r == K - 1,
+		Halide::Internal::make_const(t, 1.0),
+		Halide::Internal::make_const(t, 2.0));
+
+	ret(x) = Halide::sum(weight * (re * Halide::cos(angle) - im * Halide::sin(angle))) /
+	         Halide::Internal::make_const(t, (double)N);
+	ret.compute_root();  // reduction — chaining rule
+
 	return ret;
+}
+
+/// @brief Inverse real FFT with a RUNTIME bin count
+/// @param complex_input Complex Func with k_bins bins (Tuple of real, imag)
+/// @param k_bins Number of half-spectrum bins as a runtime expression
+///        (K = n/2+1; the reconstructed signal size is n = 2*(k_bins - 1))
+/// @param type Floating-point type to compute in
+/// @param name Function name
+/// @return Real-valued 1D Func of size n = 2*(k_bins - 1)
+///
+/// Bounded Hermitian weighted sum — reads ONLY bins [0, k_bins):
+///   x[i] = (1/n) * sum_{r=0}^{K-1} weight(r) *
+///          (re(r)*cos(2*pi*r*i/n) - im(r)*sin(2*pi*r*i/n))
+///   weight = 1 for r==0 and r==K-1 (DC and Nyquist), else 2.
+/// The result is compute_root'd (reduction — chaining rule).
+inline
+Halide::Func irfft(Halide::Func complex_input, Halide::Expr k_bins, Halide::Type type,
+                   std::string const& name = "irfft_rt")
+{
+	nh_require(type.is_float(), "irfft compute type must be a float type");
+
+	Halide::Expr n = 2 * (k_bins - 1);
+
+	Halide::Func result(name);
+	Halide::Var i("i");
+	Halide::RDom r(0, k_bins);
+
+	Halide::Expr angle = Halide::Internal::make_const(type, 2.0 * M_PI) *
+	                     Halide::cast(type, r) * Halide::cast(type, i) /
+	                     Halide::cast(type, n);
+	Halide::Expr re = Halide::cast(type, complex_input(r)[0]);
+	Halide::Expr im = Halide::cast(type, complex_input(r)[1]);
+	// Weight: 1 for DC and Nyquist (r==0 and r==k_bins-1), 2 for all others
+	Halide::Expr weight = Halide::select(
+		r == 0 || r == k_bins - 1,
+		Halide::Internal::make_const(type, 1.0),
+		Halide::Internal::make_const(type, 2.0));
+
+	result(i) = Halide::sum(weight * (re * Halide::cos(angle) - im * Halide::sin(angle))) /
+	            Halide::cast(type, n);
+	result.compute_root();
+
+	return result;
 }
 
 // -----------------------------------------------------------------------------
@@ -90,35 +179,38 @@ Halide::Func irfft(Halide::Func input, int N, std::string const& name = "irfft")
 
 /// @brief Real-input 2D FFT
 /// @param input Real-valued 2D Func (not Tuple)
-/// @param rows Number of rows (must be power of 2)
-/// @param cols Number of columns (must be power of 2)
+/// @param rows Number of rows (any size — the underlying c2c form is a
+///        direct DFT)
+/// @param cols Number of columns (any size)
 /// @param name Function name
 /// @return Complex 2D Func (Tuple of real, imag)
 ///
 /// Converts real input to complex and runs full 2D FFT.
+/// Type-preserving (real_to_complex rule): float inputs keep their type;
+/// integer inputs are promoted to f32.
 inline
 Halide::Func rfft2d(Halide::Func input, int rows, int cols, std::string const& name = "rfft2d")
 {
-	nh_require((rows & (rows - 1)) == 0, "rfft2d requires power of 2 rows, got %d", rows);
-	nh_require((cols & (cols - 1)) == 0, "rfft2d requires power of 2 cols, got %d", cols);
+	nh_require(rows > 0 && cols > 0, "rfft2d requires positive sizes, got %d x %d", rows, cols);
 
-	// Convert real to complex
-	Halide::Func complex_in("rfft2d_cin");
-	Halide::Var x, y;
-	complex_in(x, y) = Halide::Tuple(Halide::cast<float>(input(x, y)), 0.0f);
+	// Convert real to complex, preserving float types
+	Halide::Func complex_in = real_to_complex_2d(input, name + "_cin");
 
 	// Full 2D FFT
 	auto full = fft2d(complex_in, rows, cols, name + "_full");
 
 	Halide::Func ret(name);
+	Halide::Var x, y;
 	ret(x, y) = full(x, y);
 	return ret;
 }
 
 /// @brief Inverse real 2D FFT
-/// @param input Complex 2D Func
-/// @param rows Number of rows (must be power of 2)
-/// @param cols Number of columns (must be power of 2)
+/// @param input Complex 2D Func (FULL spectrum — no conjugate-symmetry
+///        mirror reads, so no half-spectrum bounds concern here)
+/// @param rows Number of rows (any size — the underlying c2c form is a
+///        direct DFT)
+/// @param cols Number of columns (any size)
 /// @param name Function name
 /// @return Real-valued 2D Func
 ///
@@ -126,8 +218,7 @@ Halide::Func rfft2d(Halide::Func input, int rows, int cols, std::string const& n
 inline
 Halide::Func irfft2d(Halide::Func input, int rows, int cols, std::string const& name = "irfft2d")
 {
-	nh_require((rows & (rows - 1)) == 0, "irfft2d requires power of 2 rows, got %d", rows);
-	nh_require((cols & (cols - 1)) == 0, "irfft2d requires power of 2 cols, got %d", cols);
+	nh_require(rows > 0 && cols > 0, "irfft2d requires positive sizes, got %d x %d", rows, cols);
 
 	auto result = ifft2d_normalized(input, rows, cols, name + "_ifft");
 
