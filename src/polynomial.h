@@ -199,6 +199,32 @@ Halide::Func chebyshev_t(int n, Halide::Func x_func, const shape_t& shape, std::
 	return ret;
 }
 
+/// @brief Chebyshev polynomial of the first kind with a RUNTIME degree
+/// @param n      Degree as a runtime expression (cast to `type`)
+/// @param x_func 1D Func of evaluation points (cast to `type`)
+/// @param type   Computation/output type (f32, f64, ...)
+/// @param name   Function name
+/// @return 1D Func with T_n(x) at each element
+///
+/// Closed form: T_n(x) = cos(n * acos(clamp(x, -1, 1))). The clamp IS the
+/// contract — out-of-range x saturates to T_n(+/-1) — unlike the
+/// compile-time recurrence overload above, which extrapolates polynomially
+/// outside [-1, 1]. Inside [-1, 1] the two forms agree. Literals are made
+/// in `type`.
+inline
+Halide::Func chebyshev_t(Halide::Expr n, Halide::Func x_func, Halide::Type type,
+	std::string const& name = "chebyshev_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var i("i");
+	Halide::Expr xv = Halide::cast(type, x_func(i));
+	Halide::Expr xc = Halide::clamp(xv,
+		Halide::Internal::make_const(type, -1.0),
+		Halide::Internal::make_const(type, 1.0));
+	ret(i) = Halide::cos(Halide::cast(type, n) * Halide::acos(xc));
+	return ret;
+}
+
 // -----------------------------------------------------------------------------
 // Legendre Polynomials
 // -----------------------------------------------------------------------------
@@ -242,6 +268,44 @@ Halide::Func legendre_p(int n, Halide::Func x_func, const shape_t& shape, std::s
 		ret(vars) = p_curr;
 	}
 
+	return ret;
+}
+
+/// @brief Legendre polynomial with a RUNTIME degree (explicit table)
+/// @param n      Degree as a runtime expression (cast to Int32)
+/// @param x_func 1D Func of evaluation points (cast to `type`)
+/// @param type   Computation/output type (f32, f64, ...)
+/// @param name   Function name
+/// @return 1D Func with P_n(x) at each element
+///
+/// Explicit degree table: P_0 = 1, P_1 = x, P_2 = (3x^2 - 1)/2,
+/// P_3 = (5x^3 - 3x)/2, and any n OUTSIDE [0, 3] returns 0 — the
+/// zero-above-3 behavior is the contract, unlike the compile-time
+/// recurrence overload above, which supports any n >= 0. Table dispatch
+/// uses nested selects: every arm is pure arithmetic on x(i) — no clamped
+/// buffer reads inside select arms, so the CMOV-strips-the-clamp hazard
+/// (see polymul) does not apply.
+inline
+Halide::Func legendre_p(Halide::Expr n, Halide::Func x_func, Halide::Type type,
+	std::string const& name = "legendre_rt")
+{
+	Halide::Func ret(name);
+	Halide::Var i("i");
+	auto C = [type](double v) { return Halide::Internal::make_const(type, v); };
+
+	Halide::Expr ni = Halide::cast<int32_t>(n);
+	Halide::Expr xv = Halide::cast(type, x_func(i));
+
+	Halide::Expr p0 = C(1.0);
+	Halide::Expr p1 = xv;
+	Halide::Expr p2 = (C(3.0) * xv * xv - C(1.0)) * C(0.5);
+	Halide::Expr p3 = (C(5.0) * xv * xv * xv - C(3.0) * xv) * C(0.5);
+
+	ret(i) = Halide::select(ni == 0, p0,
+	         Halide::select(ni == 1, p1,
+	         Halide::select(ni == 2, p2,
+	         Halide::select(ni == 3, p3,
+	         C(0.0)))));
 	return ret;
 }
 
@@ -572,6 +636,62 @@ inline Halide::Func polyfit(Halide::Func x, Halide::Func y, int n, int deg,
 
     // Solve V @ c = y in the least-squares sense via QR
     return lstsq(V, y, n, nc, name + "_c");
+}
+
+/// @brief Degree-1 least-squares fit with a RUNTIME point count
+/// @param x        1D Func of x coordinates (cast to `type`)
+/// @param y        1D Func of y values (cast to `type`)
+/// @param n_points Number of data points as a runtime expression
+/// @param type     Accumulation/output type (f32, f64, ...)
+/// @param name     Base name
+/// @return 1D Func of 2 coefficients, LOWEST degree first:
+///         ret(0) = intercept, ret(1) = slope
+///
+/// Normal equations solved by Cramer's rule:
+///   D         = n*Sxx - Sx^2
+///   slope     = (n*Sxy - Sx*Sy) / D
+///   intercept = (Sxx*Sy - Sx*Sxy) / D
+/// The four sums are staged as compute_root'd 0-D Funcs. The singular
+/// guard selects the DENOMINATOR (|D| <= 1e-10 -> divide by 1), never the
+/// quotient — divisions stay out of select arms (reverse-AD rule).
+/// Same lowest-first convention as polyfit() above; polyfit() solves the
+/// Vandermonde system by QR instead of normal equations and supports any
+/// degree, but requires a compile-time n.
+inline
+Halide::Func polyfit_linear(Halide::Func x, Halide::Func y, Halide::Expr n_points,
+    Halide::Type type, std::string const& name = "polyfit_linear")
+{
+    auto C = [type](double v) { return Halide::Internal::make_const(type, v); };
+
+    Halide::RDom r(0, n_points, "r_" + name);
+
+    Halide::Func sum_x(name + "_sx");
+    sum_x() = Halide::cast(type, Halide::sum(Halide::cast(type, x(r))));
+    sum_x.compute_root();
+
+    Halide::Func sum_y(name + "_sy");
+    sum_y() = Halide::cast(type, Halide::sum(Halide::cast(type, y(r))));
+    sum_y.compute_root();
+
+    Halide::Func sum_xx(name + "_sxx");
+    sum_xx() = Halide::cast(type, Halide::sum(Halide::cast(type, x(r)) * Halide::cast(type, x(r))));
+    sum_xx.compute_root();
+
+    Halide::Func sum_xy(name + "_sxy");
+    sum_xy() = Halide::cast(type, Halide::sum(Halide::cast(type, x(r)) * Halide::cast(type, y(r))));
+    sum_xy.compute_root();
+
+    Halide::Expr n_f    = Halide::cast(type, n_points);
+    Halide::Expr denom  = n_f * sum_xx() - sum_x() * sum_x();
+    Halide::Expr safe_d = Halide::select(Halide::abs(denom) > C(1e-10), denom, C(1.0));
+
+    Halide::Expr slope     = (n_f * sum_xy() - sum_x() * sum_y()) / safe_d;
+    Halide::Expr intercept = (sum_xx() * sum_y() - sum_x() * sum_xy()) / safe_d;
+
+    Halide::Func ret(name);
+    Halide::Var i("i");
+    ret(i) = Halide::select(i == 0, intercept, slope);
+    return ret;
 }
 
 NS_NUM_HALIDE_END
