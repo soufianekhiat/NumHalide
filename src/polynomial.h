@@ -606,6 +606,110 @@ std::pair<Halide::Func, Halide::Func> polydiv(
     return {q_ret, r_ret};
 }
 
+/// @brief Result of the runtime polydiv: quotient and remainder Funcs.
+struct polydiv_result { Halide::Func quotient; Halide::Func remainder; };
+
+/// @brief Polynomial long division with RUNTIME coefficient counts:
+///        u / v -> (quotient, remainder)
+/// @param u    Dividend coefficients (1D Func, highest power first — numpy convention)
+/// @param v    Divisor coefficients (1D Func, highest power first)
+/// @param nu   Number of dividend coefficients as a runtime expression
+/// @param nv   Number of divisor coefficients; contract: nu >= nv >= 1
+/// @param type Computation/output type (f32, f64, ...); inputs are cast to it
+/// @param name Base name
+/// @return {quotient (size nu-nv+1), remainder (size nv-1)}
+///
+/// CONVENTION NOTE (differs from numpy.polydiv's return): numpy trims
+/// leading zeros off its remainder down to at least one element; HERE the
+/// remainder is FIXED-LENGTH nv-1 — the last nv-1 coefficients of the
+/// reduced dividend, highest-first, zeros kept. An exact division yields
+/// nv-1 zeros, and nv == 1 yields an EMPTY remainder (do not realize it).
+///
+/// Fixed 8-step synthetic-division chain (structural mirror of the flow
+/// poly_div kernel, which is lowest-first — reversing both inputs maps its
+/// step-k leading read w[k](n-1-k) onto w[k](k) here): step k strips the
+/// leading coefficient at index k; steps at or beyond the true quotient
+/// length nq = nu-nv+1 are no-ops via a multiplied 0/1 step-active
+/// indicator. LIMIT inherited from the chain: quotient length must be
+/// <= 8 (nu - nv <= 7); longer quotients silently truncate to the first 8
+/// coefficients, exactly like the kernel.
+///
+/// Guard discipline: multiplied 0/1 indicators with UNCONDITIONAL clamps
+/// (see polymul) — no selects wrapping clamped reads. Dead-step reads land
+/// on clamped in-bounds points and produce finite values the indicators
+/// multiply away, so every u read stays inside [0, nu-1] by construction.
+/// The leading-coefficient division u_k / v(0) is deliberately UNGUARDED,
+/// mirroring the kernel: v(0) == 0 produces inf/nan.
+///
+/// Every work step and both outputs are compute_root'd (chained-reduction
+/// rule; each step reads its predecessor twice — once pointwise, once at
+/// the leading position — so inlining would double the expression per step).
+inline
+polydiv_result polydiv(Halide::Func u, Halide::Func v,
+    Halide::Expr nu, Halide::Expr nv,
+    Halide::Type type, std::string const& name = "polydiv_rt")
+{
+    Halide::Var i("i");
+    auto C = [type](double val) { return Halide::Internal::make_const(type, val); };
+
+    Halide::Expr nq     = nu - nv + 1;              // quotient length
+    Halide::Expr v_lead = Halide::cast(type, v(0)); // UNGUARDED — see doc above
+    Halide::Expr u_hi   = Halide::max(nu - 1, 0);   // clamp bound for u-space reads
+    Halide::Expr v_hi   = Halide::max(nv - 1, 0);   // clamp bound for v reads
+
+    constexpr int N_STEPS = 8;
+    Halide::Func works[N_STEPS + 1];
+
+    works[0] = Halide::Func(name + "_w0");
+    works[0](i) = Halide::cast(type, u(Halide::clamp(i, 0, u_hi)));
+    works[0].compute_root();
+
+    for (int step = 0; step < N_STEPS; ++step) {
+        works[step + 1] = Halide::Func(name + "_w" + std::to_string(step + 1));
+
+        // Leading coefficient of step k sits at index k (highest-first).
+        // Clamped point read: dead steps (k >= nq) read a finite in-bounds
+        // value that the `active` indicator zeroes out below.
+        Halide::Expr q_step =
+            works[step](Halide::clamp(Halide::Expr(step), 0, u_hi)) / v_lead;
+
+        // Step active iff step < nq; the subtraction touches positions
+        // [step, step+nv-1] (v(j) lands at position step+j).
+        Halide::Expr active   = Halide::cast(type, step < nq);
+        Halide::Expr in_range = Halide::cast(type, (i >= step) && (i < step + nv));
+
+        works[step + 1](i) = works[step](i)
+            - Halide::cast(type, v(Halide::clamp(i - step, 0, v_hi)))
+              * q_step * active * in_range;
+        works[step + 1].compute_root();
+    }
+
+    // Quotient: q(k) = works[k](k) / v(0), assembled with multiplied 0/1
+    // indicators (i == k partitions the lanes; the realized region
+    // [0, nq-1] means dead k contribute exact zeros).
+    Halide::Func q(name + "_q");
+    {
+        Halide::Expr acc = C(0.0);
+        for (int k = 0; k < N_STEPS; ++k) {
+            Halide::Expr qk =
+                works[k](Halide::clamp(Halide::Expr(k), 0, u_hi)) / v_lead;
+            acc = acc + Halide::cast(type, i == k) * qk;
+        }
+        q(i) = acc;
+    }
+    q.compute_root();
+
+    // Remainder: the last nv-1 coefficients of the reduced dividend,
+    // highest-first (see convention note). i + nq is in-bounds for the
+    // contract domain i in [0, nv-2]; the clamp is the unconditional-read
+    // discipline, identity on live lanes.
+    Halide::Func r(name + "_r");
+    r(i) = works[N_STEPS](Halide::clamp(i + nq, 0, u_hi));
+    r.compute_root();
+
+    return { q, r };
+}
+
 // -----------------------------------------------------------------------------
 // polyfit — least-squares polynomial fit
 // -----------------------------------------------------------------------------
