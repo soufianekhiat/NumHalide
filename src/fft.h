@@ -1,10 +1,11 @@
 /// @file fft.h
 /// @brief Fast Fourier Transform operations
 ///
-/// Provides: fft, ifft, fft2d, ifft2d, fftshift
+/// Provides: fft, ifft, fft2d, ifft2d, fftshift, dft_1d, dft_2d (runtime sizes)
 ///
-/// Based on Halide's FFT implementation from apps/fft/
-/// Uses Cooley-Tukey FFT algorithm for power-of-2 sizes.
+/// The compile-time-size forms compute the direct DFT matrix (O(N^2),
+/// avoids Halide scheduling issues) and accept ANY size; the runtime-Expr
+/// general-DFT overloads accept sizes as Halide::Exprs.
 ///
 /// Complex numbers are represented as Halide Tuples: (real, imaginary)
 
@@ -97,7 +98,7 @@ inline Halide::Tuple complex_scale(Halide::Tuple z, Halide::Expr s) {
 
 /// @brief Compute 1D FFT of a complex-valued function using DFT matrix
 /// @param input Complex input Func (returns Tuple of real, imag)
-/// @param N Size of transform (must be power of 2)
+/// @param N Size of transform (any size — the body is a direct DFT)
 /// @param sign -1 for forward FFT, +1 for inverse FFT
 /// @param name Function name
 /// @return Complex Func with FFT result
@@ -107,7 +108,7 @@ inline Halide::Tuple complex_scale(Halide::Tuple z, Halide::Expr s) {
 inline
 Halide::Func fft_1d_c2c(Halide::Func input, int N, int sign, std::string const& name = "fft1d")
 {
-    nh_require((N & (N - 1)) == 0, "FFT requires power of 2 size, got %d", N);
+    nh_require(N > 0, "FFT size must be positive, got %d", N);
     nh_require(sign == -1 || sign == 1, "FFT sign must be -1 or +1");
 
     const float pi = static_cast<float>(M_PI);
@@ -181,19 +182,20 @@ Halide::Func ifft_normalized(Halide::Func input, int N, std::string const& name 
 
 /// @brief Compute 2D FFT of a complex-valued function using separable DFT
 /// @param input Complex input Func (2D, returns Tuple)
-/// @param rows Number of rows (must be power of 2)
-/// @param cols Number of columns (must be power of 2)
+/// @param rows Number of rows (any size — the body is a direct DFT)
+/// @param cols Number of columns (any size — the body is a direct DFT)
 /// @param sign -1 for forward, +1 for inverse
 /// @param name Function name
 /// @return Complex 2D FFT result
 ///
 /// Uses separable DFT: first transform along x, then along y.
+/// CAUTION on argument order: for input(x, y), `cols` is the x extent and
+/// `rows` is the y extent — `cols` comes SECOND in the argument list.
 inline
 Halide::Func fft_2d_c2c(Halide::Func input, int rows, int cols, int sign,
                          std::string const& name = "fft2d")
 {
-    nh_require((rows & (rows - 1)) == 0, "FFT requires power of 2 rows, got %d", rows);
-    nh_require((cols & (cols - 1)) == 0, "FFT requires power of 2 cols, got %d", cols);
+    nh_require(rows > 0 && cols > 0, "FFT sizes must be positive, got %d x %d", rows, cols);
 
     const float pi = static_cast<float>(M_PI);
 
@@ -265,6 +267,158 @@ Halide::Func ifft2d_normalized(Halide::Func input, int rows, int cols,
 }
 
 // -----------------------------------------------------------------------------
+// General DFT (runtime-Expr sizes)
+// -----------------------------------------------------------------------------
+
+/// @brief Compute a general 1D DFT with a RUNTIME size
+/// @param input Complex input Func (returns Tuple of real, imag)
+/// @param n Size of transform as a runtime expression (any size, not just power of 2)
+/// @param sign -1 for forward DFT, +1 for inverse DFT
+/// @param type Floating-point type to compute in (e.g. Halide::Float(32))
+/// @param name Function name
+/// @return Complex Func with DFT result
+///
+/// X[k] = sum_{r=0}^{n-1} x[r] * exp(sign * j * 2 * pi * k * r / n)
+///
+/// A runtime size cannot drive the compile-time Cooley-Tukey recursion, so
+/// this is the direct O(N^2) DFT. No normalization is applied
+/// (dft_1d(+1) of dft_1d(-1) of x == n * x); use idft_1d_normalized for the
+/// scaled inverse. The result is compute_root'd (same convention as
+/// fft_1d_c2c) so calls chain safely.
+inline
+Halide::Func dft_1d(Halide::Func input, Halide::Expr n, int sign, Halide::Type type,
+                    std::string const& name = "dft_1d")
+{
+    nh_require(sign == -1 || sign == 1, "DFT sign must be -1 or +1");
+    nh_require(type.is_float(), "DFT compute type must be a float type");
+
+    Halide::Func result(name);
+    Halide::Var k("k");
+    Halide::RDom r(0, n);
+
+    // angle = sign * 2 * pi * k * r / n, computed in `type`.
+    Halide::Expr two_pi = Halide::Internal::make_const(type, sign * 2.0 * M_PI);
+    Halide::Expr angle = two_pi * Halide::cast(type, k) * Halide::cast(type, r) / Halide::cast(type, n);
+
+    // x[r] * e^(j*angle) via the Tuple-complex helpers:
+    // re = x_re*cos - x_im*sin, im = x_re*sin + x_im*cos
+    Halide::Tuple xr = complex(Halide::cast(type, input(r)[0]),
+                               Halide::cast(type, input(r)[1]));
+    Halide::Tuple prod = complex_mul(xr, expj(angle));
+
+    result(k) = Halide::Tuple(Halide::sum(prod[0]), Halide::sum(prod[1]));
+    result.compute_root();
+
+    return result;
+}
+
+/// @brief Compute the normalized inverse 1D DFT with a RUNTIME size
+/// @param input Complex input Func (returns Tuple of real, imag)
+/// @param n Size of transform as a runtime expression
+/// @param type Floating-point type to compute in
+/// @param name Function name
+/// @return Normalized complex inverse-DFT result (unscaled inverse / n)
+///
+/// The unscaled inverse (dft_1d with sign +1, O(N^2)) is computed into a
+/// compute_root'd raw stage, then divided by n — the raw-then-divide
+/// staging keeps the pipeline staged for adjoint derivation.
+inline
+Halide::Func idft_1d_normalized(Halide::Func input, Halide::Expr n, Halide::Type type,
+                                std::string const& name = "idft_1d_norm")
+{
+    Halide::Func raw = dft_1d(input, n, 1, type, name + "_raw");
+    raw.compute_root();
+
+    Halide::Func result(name);
+    Halide::Var x("x");
+    Halide::Expr nf = Halide::cast(type, n);
+
+    result(x) = Halide::Tuple(raw(x)[0] / nf, raw(x)[1] / nf);
+
+    return result;
+}
+
+/// @brief Compute a general 2D DFT with RUNTIME sizes
+/// @param input Complex input 2D Func (returns Tuple of real, imag)
+/// @param w Extent of dimension 0 (x) as a runtime expression
+/// @param h Extent of dimension 1 (y) as a runtime expression
+/// @param sign -1 for forward, +1 for inverse
+/// @param type Floating-point type to compute in
+/// @param name Function name
+/// @return Complex 2D DFT result
+///
+/// Separable row-then-column DFT: first along x for each y into a
+/// compute_root'd intermediate (name + "_row"), then along y. Runtime
+/// sizes cannot drive the compile-time Cooley-Tukey recursion, so each
+/// pass is the direct O(N^2) DFT (O(W*H*(W+H)) total). Unnormalized.
+/// The result is compute_root'd (same convention as fft_2d_c2c) so calls
+/// chain safely.
+inline
+Halide::Func dft_2d(Halide::Func input, Halide::Expr w, Halide::Expr h, int sign,
+                    Halide::Type type, std::string const& name = "dft_2d")
+{
+    nh_require(sign == -1 || sign == 1, "DFT sign must be -1 or +1");
+    nh_require(type.is_float(), "DFT compute type must be a float type");
+
+    Halide::Expr two_pi = Halide::Internal::make_const(type, sign * 2.0 * M_PI);
+    Halide::Var kx("kx"), ky("ky");
+
+    // Step 1: DFT along x for each row y.
+    Halide::Func row(name + "_row");
+    {
+        Halide::Var y("y");
+        Halide::RDom rx(0, w);
+        Halide::Expr angle = two_pi * Halide::cast(type, kx) * Halide::cast(type, rx) / Halide::cast(type, w);
+        Halide::Tuple xr = complex(Halide::cast(type, input(rx, y)[0]),
+                                   Halide::cast(type, input(rx, y)[1]));
+        Halide::Tuple prod = complex_mul(xr, expj(angle));
+        row(kx, y) = Halide::Tuple(Halide::sum(prod[0]), Halide::sum(prod[1]));
+    }
+    row.compute_root();
+
+    // Step 2: DFT along y for each column kx.
+    Halide::Func result(name);
+    {
+        Halide::RDom ry(0, h);
+        Halide::Expr angle = two_pi * Halide::cast(type, ky) * Halide::cast(type, ry) / Halide::cast(type, h);
+        Halide::Tuple xr = complex(Halide::cast(type, row(kx, ry)[0]),
+                                   Halide::cast(type, row(kx, ry)[1]));
+        Halide::Tuple prod = complex_mul(xr, expj(angle));
+        result(kx, ky) = Halide::Tuple(Halide::sum(prod[0]), Halide::sum(prod[1]));
+    }
+    result.compute_root();
+
+    return result;
+}
+
+/// @brief Compute the normalized inverse 2D DFT with RUNTIME sizes
+/// @param input Complex input 2D Func (returns Tuple of real, imag)
+/// @param w Extent of dimension 0 (x) as a runtime expression
+/// @param h Extent of dimension 1 (y) as a runtime expression
+/// @param type Floating-point type to compute in
+/// @param name Function name
+/// @return Normalized complex inverse-DFT result (unscaled inverse / (w*h))
+///
+/// The unscaled inverse (dft_2d with sign +1) is computed into a
+/// compute_root'd raw stage, then divided by w*h — same raw-then-divide
+/// staging as idft_1d_normalized.
+inline
+Halide::Func idft_2d_normalized(Halide::Func input, Halide::Expr w, Halide::Expr h,
+                                Halide::Type type, std::string const& name = "idft_2d_norm")
+{
+    Halide::Func raw = dft_2d(input, w, h, 1, type, name + "_raw");
+    raw.compute_root();
+
+    Halide::Func result(name);
+    Halide::Var x("x"), y("y");
+    Halide::Expr scale = Halide::cast(type, w) * Halide::cast(type, h);
+
+    result(x, y) = Halide::Tuple(raw(x, y)[0] / scale, raw(x, y)[1] / scale);
+
+    return result;
+}
+
+// -----------------------------------------------------------------------------
 // FFT Utilities
 // -----------------------------------------------------------------------------
 
@@ -273,13 +427,17 @@ Halide::Func ifft2d_normalized(Halide::Func input, int rows, int cols,
 /// @param N Size of 1D array
 /// @param name Function name
 /// @return Shifted spectrum
+///
+/// numpy conventions: fftshift gathers with offset ceil(N/2), ifftshift
+/// with floor(N/2). The two coincide for even N; for odd N they differ,
+/// and only the ceil/floor pair round-trips.
 inline
 Halide::Func fftshift_1d(Halide::Func input, int N, std::string const& name = "fftshift1d")
 {
     Halide::Func result(name);
     Halide::Var x("x");
 
-    int half = N / 2;
+    int half = (N + 1) / 2;
     Halide::Expr src_x = (x + half) % N;
 
     result(x) = Halide::Tuple(input(src_x)[0], input(src_x)[1]);
@@ -293,8 +451,44 @@ Halide::Func fftshift_1d(Halide::Func input, int N, std::string const& name = "f
 /// @param cols Number of columns
 /// @param name Function name
 /// @return Shifted spectrum
+///
+/// Same ceil(N/2) gather offset per axis as fftshift_1d (numpy semantics).
 inline
 Halide::Func fftshift_2d(Halide::Func input, int rows, int cols, std::string const& name = "fftshift2d")
+{
+    Halide::Func result(name);
+    Halide::Var x("x"), y("y");
+
+    int half_cols = (cols + 1) / 2;
+    int half_rows = (rows + 1) / 2;
+
+    Halide::Expr src_x = (x + half_cols) % cols;
+    Halide::Expr src_y = (y + half_rows) % rows;
+
+    result(x, y) = Halide::Tuple(input(src_x, src_y)[0], input(src_x, src_y)[1]);
+
+    return result;
+}
+
+/// @brief Inverse fftshift (floor(N/2) gather offset — coincides with
+/// fftshift for even N, differs for odd N; the pair round-trips)
+inline
+Halide::Func ifftshift_1d(Halide::Func input, int N, std::string const& name = "ifftshift1d")
+{
+    Halide::Func result(name);
+    Halide::Var x("x");
+
+    int half = N / 2;
+    Halide::Expr src_x = (x + half) % N;
+
+    result(x) = Halide::Tuple(input(src_x)[0], input(src_x)[1]);
+
+    return result;
+}
+
+/// @brief Inverse fftshift 2D (floor offsets per axis)
+inline
+Halide::Func ifftshift_2d(Halide::Func input, int rows, int cols, std::string const& name = "ifftshift2d")
 {
     Halide::Func result(name);
     Halide::Var x("x"), y("y");
@@ -310,43 +504,40 @@ Halide::Func fftshift_2d(Halide::Func input, int rows, int cols, std::string con
     return result;
 }
 
-/// @brief Inverse fftshift (same as fftshift for even sizes)
-inline
-Halide::Func ifftshift_1d(Halide::Func input, int N, std::string const& name = "ifftshift1d")
-{
-    return fftshift_1d(input, N, name);
-}
-
-/// @brief Inverse fftshift 2D
-inline
-Halide::Func ifftshift_2d(Halide::Func input, int rows, int cols, std::string const& name = "ifftshift2d")
-{
-    return fftshift_2d(input, rows, cols, name);
-}
-
 /// @brief Convert real array to complex (imaginary = 0)
 /// @param input Real-valued input Func
 /// @param name Function name
 /// @return Complex Func
+///
+/// Float inputs keep their type (f64 stays f64); integer inputs are
+/// promoted to f32.
 inline
 Halide::Func real_to_complex(Halide::Func input, std::string const& name = "r2c")
 {
+    Halide::Type t = input.types()[0];
+    if (!t.is_float()) t = Halide::Float(32);
+
     Halide::Func result(name);
     Halide::Var x("x");
 
-    result(x) = Halide::Tuple(Halide::cast<float>(input(x)), 0.0f);
+    result(x) = Halide::Tuple(Halide::cast(t, input(x)), Halide::Internal::make_zero(t));
 
     return result;
 }
 
 /// @brief Convert real 2D array to complex
+///
+/// Same typing rule as real_to_complex.
 inline
 Halide::Func real_to_complex_2d(Halide::Func input, std::string const& name = "r2c_2d")
 {
+    Halide::Type t = input.types()[0];
+    if (!t.is_float()) t = Halide::Float(32);
+
     Halide::Func result(name);
     Halide::Var x("x"), y("y");
 
-    result(x, y) = Halide::Tuple(Halide::cast<float>(input(x, y)), 0.0f);
+    result(x, y) = Halide::Tuple(Halide::cast(t, input(x, y)), Halide::Internal::make_zero(t));
 
     return result;
 }
