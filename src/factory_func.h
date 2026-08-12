@@ -402,14 +402,17 @@ Halide::Func rand_normal(Halide::Type type, const shape_t& shape, Halide::Expr m
 	}
 
 	// Box-Muller: z = sqrt(-2 * ln(u1)) * cos(2 * pi * u2)
-	const float pi = 3.14159265358979323846f;
+	// 2*pi is made in `type` (for f32 the folded constant is bit-identical
+	// to the old host-folded 2.0f * pi; for f64 it is full-precision 2*pi
+	// instead of a widened f32 constant). -2.0 widens exactly.
+	Halide::Expr two_pi = Halide::Internal::make_const(type, 2.0 * 3.14159265358979323846);
 	Halide::Expr u1_val = u1(vars);
 	Halide::Expr u2_val = u2(vars);
 
 	// Clamp u1 to avoid log(0)
 	u1_val = Halide::max(u1_val, Halide::cast(type, 1e-10f));
 
-	Halide::Expr z = Halide::sqrt(-2.0f * Halide::log(u1_val)) * Halide::cos(2.0f * pi * u2_val);
+	Halide::Expr z = Halide::sqrt(-2.0f * Halide::log(u1_val)) * Halide::cos(two_pi * u2_val);
 	ret(vars) = Halide::cast(type, mean) + Halide::cast(type, stddev) * z;
 	return ret;
 }

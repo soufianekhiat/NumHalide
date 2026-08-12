@@ -42,11 +42,13 @@ Halide::Func percentile(Halide::Func f, int n, float q,
 
     Halide::Func sorted = bitonic_sort(f, n, name + "_sorted");
 
-    // Continuous position in [0, n-1]
-    float pos = (q / 100.0f) * static_cast<float>(n - 1);
+    // Continuous position in [0, n-1]. Host math in double so the
+    // interpolation fraction carries full precision into f64 pipelines
+    // (it was f32-computed, which quantized f64 interpolation weights).
+    double pos = (static_cast<double>(q) / 100.0) * static_cast<double>(n - 1);
     int lo = static_cast<int>(pos);
     int hi = lo + 1;
-    float frac = pos - static_cast<float>(lo);
+    double frac = pos - static_cast<double>(lo);
 
     // Clamp indices to valid range
     lo = std::max(0, std::min(lo, n - 1));
@@ -56,8 +58,8 @@ Halide::Func percentile(Halide::Func f, int n, float q,
 
     Halide::Func ret(name);
     Halide::Var x;
-    ret(x) = Halide::cast(t, sorted(lo)) * Halide::cast(t, 1.0f - frac)
-           + Halide::cast(t, sorted(hi)) * Halide::cast(t, frac);
+    ret(x) = Halide::cast(t, sorted(lo)) * Halide::Internal::make_const(t, 1.0 - frac)
+           + Halide::cast(t, sorted(hi)) * Halide::Internal::make_const(t, frac);
 
     return ret;
 }
@@ -289,10 +291,15 @@ Halide::Func nanpercentile(Halide::Func f, int n, float q,
 {
     Halide::Var i("i");
 
-    // Replace NaN with +inf so they sort to the end
+    // Replace NaN with +inf so they sort to the end. Sentinel made in f's
+    // own float type (an f32 infinity against an f64 arm is a select-type
+    // mismatch at definition).
+    Halide::Type tc = f.types()[0];
+    if (!tc.is_float()) tc = Halide::Float(32);
     Halide::Func clean(name + "_clean");
     clean(i) = Halide::select(Halide::is_nan(f(i)),
-        std::numeric_limits<float>::infinity(), f(i));
+        Halide::Internal::make_const(tc, std::numeric_limits<double>::infinity()),
+        f(i));
     clean.compute_root();
 
     // Sort ascending
@@ -306,27 +313,36 @@ Halide::Func nanpercentile(Halide::Func f, int n, float q,
     cnt() += Halide::cast<int32_t>(Halide::select(Halide::is_nan(f(rc)), 0, 1));
     cnt.compute_root();
 
-    // Linear interpolation at position pos = q/100 * (k-1)
-    Halide::Expr k   = Halide::cast<float>(cnt());
-    Halide::Expr pos = (q / 100.0f) * (k - 1.0f);
+    // Linear interpolation at position pos = q/100 * (k-1), computed in
+    // the sorted values' own float type (f64 stays f64 — the interpolation
+    // fraction was f32-precision on f64 inputs). q/100 keeps the host-f32
+    // quotient (float API parameter), so f32 results are unchanged.
+    Halide::Type t = sorted.types()[0];
+    if (!t.is_float()) t = Halide::Float(32);
+    Halide::Expr zero_t = Halide::Internal::make_zero(t);
+    Halide::Expr one_t  = Halide::Internal::make_one(t);
+
+    Halide::Expr k   = Halide::cast(t, cnt());
+    Halide::Expr pos = Halide::Internal::make_const(t, static_cast<double>(q / 100.0f))
+                       * (k - one_t);
     Halide::Expr lo_idx = Halide::cast<int32_t>(Halide::floor(pos));
     Halide::Expr hi_idx = Halide::min(lo_idx + 1, cnt() - 1);
     Halide::Expr frac   = pos - Halide::floor(pos);
 
     Halide::Func lo_e(name + "_lo");
     Halide::RDom rlo(0, n, "rlo_np");
-    lo_e() = 0.0f;
-    lo_e() += Halide::select(rlo == lo_idx, sorted(rlo), 0.0f);
+    lo_e() = zero_t;
+    lo_e() += Halide::select(rlo == lo_idx, sorted(rlo), zero_t);
     lo_e.compute_root();
 
     Halide::Func hi_e(name + "_hi");
     Halide::RDom rhi(0, n, "rhi_np");
-    hi_e() = 0.0f;
-    hi_e() += Halide::select(rhi == hi_idx, sorted(rhi), 0.0f);
+    hi_e() = zero_t;
+    hi_e() += Halide::select(rhi == hi_idx, sorted(rhi), zero_t);
     hi_e.compute_root();
 
     Halide::Func ret(name);
-    ret() = lo_e() * (1.0f - frac) + hi_e() * frac;
+    ret() = lo_e() * (one_t - frac) + hi_e() * frac;
     return ret;
 }
 

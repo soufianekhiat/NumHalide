@@ -565,10 +565,15 @@ Halide::Func nanmedian(Halide::Func f, int n,
 {
     Halide::Var i("i");
 
-    // Replace NaN with +inf so they sort to the end
+    // Replace NaN with +inf so they sort to the end. The sentinel is made
+    // in f's own float type — an f32 infinity against an f64 arm is a
+    // select-type mismatch at definition.
+    Halide::Type tc = f.types()[0];
+    if (!tc.is_float()) tc = Halide::Float(32);
     Halide::Func clean(name + "_clean");
     clean(i) = Halide::select(Halide::is_nan(f(i)),
-        std::numeric_limits<float>::infinity(), f(i));
+        Halide::Internal::make_const(tc, std::numeric_limits<double>::infinity()),
+        f(i));
     clean.compute_root();
 
     // Sort ascending (NaN/inf go to end)
@@ -584,17 +589,23 @@ Halide::Func nanmedian(Halide::Func f, int n,
 
     // lo = sorted[(k-1)/2], hi = sorted[k/2]; median = (lo + hi) / 2
     // (for odd k: (k-1)/2 == k/2, so lo==hi and median is just that element)
+    // Accumulate in the sorted values' own float type (f64 stays f64);
+    // the exact 0.5 literal widens exactly.
+    Halide::Type t = sorted.types()[0];
+    if (!t.is_float()) t = Halide::Float(32);
+    Halide::Expr zero_t = Halide::Internal::make_zero(t);
+
     Halide::Expr k = cnt();
     Halide::Func lo_e(name + "_lo");
     Halide::RDom rlo(0, n, "rlo_nm");
-    lo_e() = 0.0f;
-    lo_e() += Halide::select(rlo == (k - 1) / 2, sorted(rlo), 0.0f);
+    lo_e() = zero_t;
+    lo_e() += Halide::select(rlo == (k - 1) / 2, sorted(rlo), zero_t);
     lo_e.compute_root();
 
     Halide::Func hi_e(name + "_hi");
     Halide::RDom rhi(0, n, "rhi_nm");
-    hi_e() = 0.0f;
-    hi_e() += Halide::select(rhi == k / 2, sorted(rhi), 0.0f);
+    hi_e() = zero_t;
+    hi_e() += Halide::select(rhi == k / 2, sorted(rhi), zero_t);
     hi_e.compute_root();
 
     Halide::Func ret(name);

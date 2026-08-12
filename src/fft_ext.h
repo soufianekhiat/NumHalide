@@ -37,8 +37,13 @@ Halide::Func cross_power_spectrum(Halide::Func a, Halide::Func b, int /*rows*/, 
 	Halide::Expr prod_re = ar * br + ai * bi;
 	Halide::Expr prod_im = ai * br - ar * bi;
 
+	// The magnitude floor is made in the input's own float type (same f32
+	// value as the old 1e-10f literal; integer inputs keep f32).
+	Halide::Type t = a.types()[0];
+	if (!t.is_float()) t = Halide::Float(32);
+
 	Halide::Expr mag = Halide::sqrt(prod_re * prod_re + prod_im * prod_im);
-	mag = Halide::max(mag, 1e-10f);  // avoid division by zero
+	mag = Halide::max(mag, Halide::Internal::make_const(t, 1e-10));  // avoid division by zero
 
 	ret(x, y) = Halide::Tuple(prod_re / mag, prod_im / mag);
 	return ret;
@@ -97,10 +102,16 @@ Halide::Func spectral_centroid(Halide::Func f, int N, std::string const& name = 
 	Halide::Var dummy;
 	Halide::RDom r(0, N);
 
-	Halide::Expr power = f(r)[0] * f(r)[0] + f(r)[1] * f(r)[1];
-	Halide::Expr weighted = Halide::cast<float>(r) * power;
+	// Weight index and guard in the input's own float type (f64 stays
+	// f64); integer inputs keep the historical f32 path.
+	Halide::Type t = f.types()[0];
+	if (!t.is_float()) t = Halide::Float(32);
 
-	ret(dummy) = Halide::sum(weighted) / Halide::max(Halide::sum(power), 1e-10f);
+	Halide::Expr power = f(r)[0] * f(r)[0] + f(r)[1] * f(r)[1];
+	Halide::Expr weighted = Halide::cast(t, r) * power;
+
+	ret(dummy) = Halide::sum(weighted)
+		/ Halide::max(Halide::sum(power), Halide::Internal::make_const(t, 1e-10));
 	return ret;
 }
 

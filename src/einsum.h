@@ -277,11 +277,16 @@ inline Halide::Func einsum(const std::string& subscripts,
         a_args.push_back(letter_expr(sub_A[p]));
     }
 
+    // Accumulator seed type: the input's own float type (f64 stays f64);
+    // integer inputs keep the historical f32 accumulation.
+    Halide::Type acc_t = A.types()[0];
+    if (!acc_t.is_float()) acc_t = Halide::Float(32);
+
     // Full reduction (empty output)?
     if (output_sub.empty()) {
         // Wrap scalar in 1D Func
         Halide::Func raw(name + "_raw");
-        raw() = Halide::cast<float>(0);
+        raw() = Halide::cast(acc_t, 0);
         if (has_rdom) {
             raw() += A(a_args);
         } else {
@@ -303,7 +308,7 @@ inline Halide::Func einsum(const std::string& subscripts,
     Halide::Func ret(name);
     if (has_rdom) {
         // Initialize to zero, then accumulate
-        ret(result_args) = Halide::cast<float>(0);
+        ret(result_args) = Halide::cast(acc_t, 0);
         ret(result_args) += A(a_args);
     } else {
         // Pure mapping (e.g. transpose, diagonal extract)
@@ -417,10 +422,16 @@ inline Halide::Func einsum(const std::string& subscripts,
         b_args.push_back(letter_expr(sub_B[p]));
     }
 
+    // Accumulator seed type: the type of the A*B product (so mixed and f64
+    // inputs accumulate without truncation); integer products keep the
+    // historical f32 accumulation.
+    Halide::Type acc_t = (A(a_args) * B(b_args)).type();
+    if (!acc_t.is_float()) acc_t = Halide::Float(32);
+
     // Full reduction (empty output)?
     if (output_sub.empty()) {
         Halide::Func raw(name + "_raw");
-        raw() = Halide::cast<float>(0);
+        raw() = Halide::cast(acc_t, 0);
         if (has_rdom) {
             raw() += A(a_args) * B(b_args);
         } else {
@@ -441,7 +452,7 @@ inline Halide::Func einsum(const std::string& subscripts,
 
     Halide::Func ret(name);
     if (has_rdom) {
-        ret(result_args) = Halide::cast<float>(0);
+        ret(result_args) = Halide::cast(acc_t, 0);
         ret(result_args) += A(a_args) * B(b_args);
     } else {
         // Pure (no contraction): elementwise product or permutation

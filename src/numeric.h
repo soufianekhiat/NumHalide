@@ -39,8 +39,14 @@ Halide::Func logaddexp2(Halide::Func a, Halide::Func b, const shape_t& shape,
     for (int i = 0; i < shape.rank; ++i) vars.push_back(Halide::Var());
     Halide::Expr va = a(vars), vb = b(vars);
     // log2(2^a + 2^b) = max(a,b) + log2(1 + 2^(-|a-b|))
+    // ln(2) is taken of a constant made in the input's own float type —
+    // for f32 this folds to the same value as the old log(2.0f); for f64
+    // it is the full-precision ln(2) instead of a widened f32 constant.
+    Halide::Type t = a.types()[0];
+    if (!t.is_float()) t = Halide::Float(32);
+    Halide::Expr ln2 = Halide::log(Halide::Internal::make_const(t, 2.0));
     ret(vars) = Halide::max(va, vb) +
-        Halide::log(1.0f + Halide::pow(2.0f, -Halide::abs(va - vb))) / Halide::log(2.0f);
+        Halide::log(1.0f + Halide::pow(2.0f, -Halide::abs(va - vb))) / ln2;
     return ret;
 }
 
@@ -87,10 +93,16 @@ Halide::Func trapz_1d(Halide::Func f, int n, float dx = 1.0f,
     std::string const& name = "trapz")
 {
     nh_require(n >= 2, "trapz_1d: need at least 2 points");
+    // Accumulate in the input's own float type (f64 stays f64); integer
+    // inputs keep the historical f32 accumulation. The half-spacing is the
+    // host-float product dx * 0.5f cast into that type — value-identical
+    // for f32; dx itself is f32-quantized by the float API parameter.
+    Halide::Type t = f.types()[0];
+    if (!t.is_float()) t = Halide::Float(32);
     Halide::Func ret(name);
     Halide::RDom r(0, n - 1, "r_trapz");
-    ret() = 0.0f;
-    ret() += (f(r) + f(r + 1)) * (dx * 0.5f);
+    ret() = Halide::cast(t, 0);
+    ret() += (f(r) + f(r + 1)) * Halide::Internal::make_const(t, static_cast<double>(dx) * 0.5);
     return ret;
 }
 
@@ -103,9 +115,13 @@ Halide::Func trapz_1d(Halide::Func f, Halide::Func x, int n,
     std::string const& name = "trapz_xu")
 {
     nh_require(n >= 2, "trapz_1d: need at least 2 points");
+    // Accumulate in the input's own float type (f64 stays f64); the exact
+    // 0.5 literal widens exactly, so only the seed needs typing.
+    Halide::Type t = f.types()[0];
+    if (!t.is_float()) t = Halide::Float(32);
     Halide::Func ret(name);
     Halide::RDom r(0, n - 1, "r_trapz_xu");
-    ret() = 0.0f;
+    ret() = Halide::cast(t, 0);
     ret() += (f(r) + f(r + 1)) * (x(r + 1) - x(r)) * 0.5f;
     return ret;
 }
@@ -186,16 +202,21 @@ Halide::Func correlate1d(Halide::Func a, Halide::Func v, int na, int nv,
         out_size = na - nv + 1;
     }
 
+    // Accumulate in the input's own float type (f64 stays f64); integer
+    // inputs keep the historical f32 validity factor.
+    Halide::Type t = a.types()[0];
+    if (!t.is_float()) t = Halide::Float(32);
+
     Halide::Func ret(name);
     Halide::Var k("k");
     Halide::RDom rn(0, nv, "rn_corr1d");
-    ret(k) = 0.0f;
+    ret(k) = Halide::cast(t, 0);
     Halide::Expr a_idx = rn + k - pad;
     // Guard as multiplied 0/1 factor + unconditional clamp — a select whose
     // condition proves the clamp redundant lets the simplifier strip it and
     // CMOV reads OOB (see polymul in polynomial.h).
     Halide::Expr valid = a_idx >= 0 && a_idx < na;
-    ret(k) += a(Halide::clamp(a_idx, 0, na - 1)) * v(rn) * Halide::cast<float>(valid);
+    ret(k) += a(Halide::clamp(a_idx, 0, na - 1)) * v(rn) * Halide::cast(t, valid);
     return ret;
 }
 

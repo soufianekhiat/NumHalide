@@ -39,7 +39,12 @@ Halide::Func log2(Halide::Func f, const shape_t& shape, std::string const& name 
 		vars.push_back(Halide::Var());
 	}
 
-	ret(vars) = Halide::log(f(vars)) / Halide::log(2.0f);
+	// ln(2) of a constant made in the input's own float type — for f32
+	// this folds to the same value as the old log(2.0f); for f64 it is
+	// full-precision ln(2) instead of a widened f32 constant.
+	Halide::Type t = f.types()[0];
+	if (!t.is_float()) t = Halide::Float(32);
+	ret(vars) = Halide::log(f(vars)) / Halide::log(Halide::Internal::make_const(t, 2.0));
 	return ret;
 }
 
@@ -53,7 +58,11 @@ Halide::Func log10(Halide::Func f, const shape_t& shape, std::string const& name
 		vars.push_back(Halide::Var());
 	}
 
-	ret(vars) = Halide::log(f(vars)) / Halide::log(10.0f);
+	// ln(10) of a constant made in the input's own float type — same
+	// rationale as log2 above.
+	Halide::Type t = f.types()[0];
+	if (!t.is_float()) t = Halide::Float(32);
+	ret(vars) = Halide::log(f(vars)) / Halide::log(Halide::Internal::make_const(t, 10.0));
 	return ret;
 }
 
@@ -154,10 +163,21 @@ Halide::Func sinc(Halide::Func f, const shape_t& shape, std::string const& name 
 		vars.push_back(Halide::Var());
 	}
 
-	constexpr float pi = 3.14159265358979323846f;
+	// pi is made in the input's own float type (f64 keeps full-precision
+	// pi; the f32 constant is unchanged). The x == 0 arm is a multiplied
+	// 0/1 indicator with a guarded denominator, NOT a select around the
+	// division: a select arm containing sin(pix)/pix evaluates 0/0 = NaN
+	// at x = 0 under CMOV and breaks reverse-mode AD (f32-zero arm vs f64
+	// division derivative). Value-identical: x != 0 -> sin(pix)/(pix + 0);
+	// x == 0 -> 0 * (0/1) + 1 = 1.
+	Halide::Type t = f.types()[0];
+	if (!t.is_float()) t = Halide::Float(32);
+	Halide::Expr one = Halide::Internal::make_one(t);
+	Halide::Expr pi_t = Halide::Internal::make_const(t, 3.14159265358979323846);
 	Halide::Expr val = f(vars);
-	Halide::Expr pix = pi * val;
-	ret(vars) = Halide::select(val == 0.0f, 1.0f, Halide::sin(pix) / pix);
+	Halide::Expr pix = pi_t * val;
+	Halide::Expr is0 = Halide::cast(t, val == Halide::Internal::make_zero(t));
+	ret(vars) = (one - is0) * (Halide::sin(pix) / (pix + is0)) + is0;
 	return ret;
 }
 

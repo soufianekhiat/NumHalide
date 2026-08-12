@@ -473,9 +473,14 @@ Halide::Func norm(Halide::Func vec, const shape_t& shape_vec, std::string const&
 	Halide::Var x("x");
 	Halide::RDom i(0, N, "i");
 
+	// Accumulate in the input's own float type (f64 stays f64); integer
+	// inputs keep the historical f32 accumulation.
+	Halide::Type type = vec.types()[0];
+	if (!type.is_float()) type = Halide::Float(32);
+
 	Halide::Func sum_sq("sum_sq");
-	sum_sq(x) = Halide::cast<float>(0);
-	sum_sq(x) += Halide::cast<float>(vec(i)) * Halide::cast<float>(vec(i));
+	sum_sq(x) = Halide::cast(type, 0);
+	sum_sq(x) += Halide::cast(type, vec(i)) * Halide::cast(type, vec(i));
 
 	ret(x) = Halide::sqrt(sum_sq(x));
 
@@ -518,9 +523,14 @@ Halide::Func frobenius_norm(Halide::Func mat, const shape_t& shape_mat, std::str
 	Halide::Var x("x");
 	Halide::RDom r(0, N, 0, M, "r");
 
+	// Accumulate in the input's own float type (f64 stays f64); integer
+	// inputs keep the historical f32 accumulation.
+	Halide::Type type = mat.types()[0];
+	if (!type.is_float()) type = Halide::Float(32);
+
 	Halide::Func sum_sq("sum_sq");
-	sum_sq(x) = Halide::cast<float>(0);
-	sum_sq(x) += Halide::cast<float>(mat(r.x, r.y)) * Halide::cast<float>(mat(r.x, r.y));
+	sum_sq(x) = Halide::cast(type, 0);
+	sum_sq(x) += Halide::cast(type, mat(r.x, r.y)) * Halide::cast(type, mat(r.x, r.y));
 
 	ret(x) = Halide::sqrt(sum_sq(x));
 
@@ -580,9 +590,14 @@ Halide::Func norm(Halide::Func f, const shape_t& in_shape, int axis, std::string
 		}
 	}
 
+	// Accumulate in the input's own float type (f64 stays f64); integer
+	// inputs keep the historical f32 accumulation.
+	Halide::Type type = f.types()[0];
+	if (!type.is_float()) type = Halide::Float(32);
+
 	Halide::Func sum_sq("sum_sq");
-	sum_sq(out_vars) = Halide::cast<float>(0);
-	sum_sq(out_vars) += Halide::cast<float>(f(in_args)) * Halide::cast<float>(f(in_args));
+	sum_sq(out_vars) = Halide::cast(type, 0);
+	sum_sq(out_vars) += Halide::cast(type, f(in_args)) * Halide::cast(type, f(in_args));
 
 	ret(out_vars) = Halide::sqrt(sum_sq(out_vars));
 
@@ -959,13 +974,17 @@ Halide::Func normalize(Halide::Func f, const shape_t& shape, int axis = -1,
         else f_args_rk.push_back(Halide::Expr(vars[d]));
     }
 
-    // Sum of squares
+    // Sum of squares, in the input's own float type (f64 stays f64);
+    // integer inputs keep the historical f32 accumulation.
+    Halide::Type type = f.types()[0];
+    if (!type.is_float()) type = Halide::Float(32);
+
     Halide::Func ss(name + "_ss");
     if (out_vars.empty()) {
-        ss() = 0.0f;
+        ss() = Halide::cast(type, 0);
         ss() += f(f_args_rk) * f(f_args_rk);
     } else {
-        ss(out_vars) = 0.0f;
+        ss(out_vars) = Halide::cast(type, 0);
         ss(out_vars) += f(f_args_rk) * f(f_args_rk);
     }
     ss.compute_root();
@@ -1476,20 +1495,40 @@ inline SVDResult svd_jacobi(Halide::Func A, int m, int n,
 
                 // Jacobi rotation: ζ=(β−α)/(2γ), t=sgn(ζ)/(|ζ|+√(1+ζ²))
                 // cs = 1/√(1+t²), sn = cs·t   (skip when γ≈0)
+                //
+                // SKIP GUARD via multiplied 0/1 indicators, NOT a select
+                // around the division: reverse-mode AD of a select
+                // synthesizes an f32 zero for the inactive arm, which
+                // type-clashes with the f64 derivative of the ζ division
+                // inside the arm (same rule as the gathers below, and the
+                // same form as eigh_jacobi's typed overload). rot = 1
+                // applies the rotation; rot = 0 yields the exact identity
+                // (cs = 1, sn = 0) AND a zero adjoint through the rotation
+                // branch: 0 × finite = 0, and the guarded denominator
+                // below keeps the branch finite, so never inf × 0 = NaN.
                 Halide::Expr g    = gam();
-                Halide::Expr skip = Halide::abs(g) < Halide::Internal::make_const(type, 1e-10);
-                Halide::Expr zeta = (beta() - alpha()) / (Halide::Internal::make_const(type, 2.0) * g);
+                Halide::Expr rot  = Halide::cast(type,
+                    Halide::abs(g) >= Halide::Internal::make_const(type, 1e-10));
+                Halide::Expr skp  = one - rot;
+
+                // Guarded denominator: when skipping, +skp shifts it to
+                // ≈1 (|2γ| < 2e-10 ⇒ |2γ + 1| ≥ 1 − 2e-10 > 0); when
+                // rotating, skp = 0 and it is exactly 2γ with |γ| ≥ 1e-10.
+                // Finite everywhere, no select around the division.
+                Halide::Expr zeta = (beta() - alpha())
+                    / (Halide::Internal::make_const(type, 2.0) * g + skp);
                 Halide::Expr abz  = Halide::abs(zeta);
                 Halide::Expr t    = Halide::select(zeta >= zero, one, Halide::Internal::make_const(type, -1.0))
                                     / (abz + Halide::sqrt(one + zeta * zeta));
 
                 Halide::Func cs_f(tag + "_cs");
-                cs_f() = Halide::select(skip, one,
-                    one / Halide::sqrt(one + t * t));
+                cs_f() = skp + rot * (one / Halide::sqrt(one + t * t));
                 cs_f.compute_root();
 
+                // rot² = rot and rot·skp = 0, so sn = rot·cs·t reuses the
+                // staged cosine (cs = 1 when skipping ⇒ sn = 0 exactly).
                 Halide::Func sn_f(tag + "_sn");
-                sn_f() = Halide::select(skip, zero, cs_f() * t);
+                sn_f() = rot * cs_f() * t;
                 sn_f.compute_root();
 
                 // Update W[:,p] and W[:,q]  (using old W on RHS).
@@ -2004,7 +2043,8 @@ inline Halide::Func pinv(Halide::Func A, int m, int n,
 /// @param A  n×n matrix Func
 /// @param n  Matrix size
 /// @param name Base name
-/// @return 0D scalar Func; realize with Buffer<float>::make_scalar()
+/// @return 0D scalar Func in A's element type (f32, f64, ...); realize with
+///         Buffer<T>::make_scalar() of the matching T
 ///
 /// Warning: no partial pivoting — may give inaccurate results for
 /// ill-conditioned or nearly-singular matrices.
@@ -2013,8 +2053,13 @@ inline Halide::Func det_lu(Halide::Func A, int n,
 {
     Halide::Var col("col"), row("row");
 
+    // Compute in A's own float type (f64 stays f64); integer inputs keep
+    // the historical f32 path (the elimination divides).
+    Halide::Type type = A.types()[0];
+    if (!type.is_float()) type = Halide::Float(32);
+
     Halide::Func W(name + "_W0");
-    W(col, row) = Halide::cast<float>(A(col, row));
+    W(col, row) = Halide::cast(type, A(col, row));
     W.compute_root();
 
     for (int k = 0; k < n - 1; ++k) {
@@ -2044,7 +2089,7 @@ inline Halide::Func det_lu(Halide::Func A, int n,
     // det = product of upper-triangular diagonal
     Halide::RDom rk(0, n, "rk_det");
     Halide::Func det_f(name + "_d");
-    det_f() = 1.0f;
+    det_f() = Halide::Internal::make_one(type);
     det_f() *= W(rk, rk);
 
     return det_f;
@@ -2061,18 +2106,25 @@ inline Halide::Func det_lu(Halide::Func A, int n,
 /// @param tol      Singular values ≤ tol are treated as zero (default 1e-10)
 /// @param n_sweeps Jacobi SVD sweeps (default 10)
 /// @param name     Base name
-/// @return 0D scalar Func (float); realize with Buffer<float>::make_scalar()
+/// @return 0D scalar Func in A's element type; realize with
+///         Buffer<T>::make_scalar() of the matching T
 inline Halide::Func matrix_rank(Halide::Func A, int m, int n,
     float tol = 1e-10f, int n_sweeps = 10,
     std::string const& name = "matrix_rank")
 {
+    // Count in A's own float type (the count is exactly representable in
+    // every float type; the comparison runs in A's type).
+    Halide::Type type = A.types()[0];
+    if (!type.is_float()) type = Halide::Float(32);
+    Halide::Expr tol_e = Halide::Internal::make_const(type, static_cast<double>(tol));
+
     auto svd = svd_jacobi(A, m, n, n_sweeps, name + "_svd");
     svd.S.compute_root();
 
     Halide::RDom rk(0, n, "rk_mr");
     Halide::Func ret(name);
-    ret() = 0.0f;
-    ret() += Halide::select(svd.S(rk) > tol, 1.0f, 0.0f);
+    ret() = Halide::cast(type, 0);
+    ret() += Halide::cast(type, svd.S(rk) > tol_e);
     return ret;
 }
 
@@ -2126,7 +2178,8 @@ struct SlogdetResult {
 /// @param A    n×n matrix Func
 /// @param n    Matrix size
 /// @param name Base name
-/// @return SlogdetResult; realize each with Buffer<float>::make_scalar()
+/// @return SlogdetResult in A's element type; realize each with
+///         Buffer<T>::make_scalar() of the matching T
 ///
 /// Uses Doolittle LU (no pivoting) — inaccurate for ill-conditioned matrices.
 /// sign = product of sgn(U_ii); logabsdet = sum(log|U_ii|)
@@ -2135,8 +2188,15 @@ inline SlogdetResult slogdet(Halide::Func A, int n,
 {
     Halide::Var col("col"), row("row");
 
+    // Compute in A's own float type (f64 stays f64); integer inputs keep
+    // the historical f32 path (the elimination divides).
+    Halide::Type type = A.types()[0];
+    if (!type.is_float()) type = Halide::Float(32);
+    Halide::Expr zero = Halide::Internal::make_zero(type);
+    Halide::Expr one  = Halide::Internal::make_one(type);
+
     Halide::Func W(name + "_W0");
-    W(col, row) = Halide::cast<float>(A(col, row));
+    W(col, row) = Halide::cast(type, A(col, row));
     W.compute_root();
 
     for (int k = 0; k < n - 1; ++k) {
@@ -2159,12 +2219,13 @@ inline SlogdetResult slogdet(Halide::Func A, int n,
     // sign = product of sgn(U_ii); logabsdet = sum(log|U_ii|)
     Halide::RDom rk(0, n, "rk_sd");
     Halide::Func sign_f(name + "_sign");
-    sign_f() = 1.0f;
-    sign_f() *= Halide::select(W(rk, rk) >= 0.0f, 1.0f, -1.0f);
+    sign_f() = one;
+    sign_f() *= Halide::select(W(rk, rk) >= zero, one,
+        Halide::Internal::make_const(type, -1.0));
 
     Halide::RDom rk2(0, n, "rk2_sd");
     Halide::Func logdet_f(name + "_logdet");
-    logdet_f() = 0.0f;
+    logdet_f() = zero;
     logdet_f() += Halide::log(Halide::abs(W(rk2, rk2)));
 
     return { sign_f, logdet_f };
@@ -2229,9 +2290,14 @@ inline EigResult eig_qr(Halide::Func A, int n,
     // Special-case the 2×2 exact formula
     if (n == 2) return eig2x2(A, name);
 
+    // Compute in A's own float type (f64 stays f64); integer inputs keep
+    // the historical f32 path (qr_gs divides).
+    Halide::Type type = A.types()[0];
+    if (!type.is_float()) type = Halide::Float(32);
+
     Halide::Var col("col"), row("row");
     Halide::Func Ak(name + "_A0");
-    Ak(col, row) = Halide::cast<float>(A(col, row));
+    Ak(col, row) = Halide::cast(type, A(col, row));
     Ak.compute_root();
 
     shape_t snn = { n, n };
@@ -2250,7 +2316,7 @@ inline EigResult eig_qr(Halide::Func A, int n,
     Halide::Var k("k");
     Halide::Func re(name + "_re"), im(name + "_im");
     re(k) = Ak(k, k);
-    im(k) = 0.0f;
+    im(k) = Halide::Internal::make_zero(type);
     return { re, im };
 }
 

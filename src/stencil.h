@@ -39,7 +39,12 @@ Halide::Func stencil_apply(Halide::Func f, const shape_t& shape,
 	Halide::Expr ix = Halide::clamp(x + Halide::cast<int32_t>(offsets_x(r)), 0, cols - 1);
 	Halide::Expr iy = Halide::clamp(y + Halide::cast<int32_t>(offsets_y(r)), 0, rows - 1);
 
-	ret(x, y) = Halide::cast<float>(0);
+	// Accumulate in the type of the weights*f product (f64 stays f64);
+	// integer products keep the historical f32 accumulation.
+	Halide::Type t = (weights(r) * f(ix, iy)).type();
+	if (!t.is_float()) t = Halide::Float(32);
+
+	ret(x, y) = Halide::cast(t, 0);
 	ret(x, y) += weights(r) * f(ix, iy);
 	return ret;
 }

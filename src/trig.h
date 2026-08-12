@@ -74,7 +74,13 @@ Halide::Func degrees(Halide::Func f, const shape_t& shape, std::string const& na
 		vars.push_back(Halide::Var());
 	}
 
-	ret(vars) = f(vars) * (180.0f / 3.14159265358979323846f);
+	// The 180/pi ratio is divided in the input's own float type: at f32 the
+	// folded quotient equals the old host-folded 180.0f / (float)pi; at f64
+	// it is the full-precision ratio instead of a widened f32 constant.
+	Halide::Type t = f.types()[0];
+	if (!t.is_float()) t = Halide::Float(32);
+	ret(vars) = f(vars) * (Halide::Internal::make_const(t, 180.0)
+		/ Halide::Internal::make_const(t, 3.14159265358979323846));
 	return ret;
 }
 
@@ -88,7 +94,12 @@ Halide::Func radians(Halide::Func f, const shape_t& shape, std::string const& na
 		vars.push_back(Halide::Var());
 	}
 
-	ret(vars) = f(vars) * (3.14159265358979323846f / 180.0f);
+	// Same rationale as degrees(): the pi/180 ratio is divided in the
+	// input's own float type (f32 quotient unchanged; f64 full precision).
+	Halide::Type t = f.types()[0];
+	if (!t.is_float()) t = Halide::Float(32);
+	ret(vars) = f(vars) * (Halide::Internal::make_const(t, 3.14159265358979323846)
+		/ Halide::Internal::make_const(t, 180.0));
 	return ret;
 }
 
@@ -267,8 +278,12 @@ Halide::Func unwrap(Halide::Func f, const shape_t& shape, std::string const& nam
 		vars.push_back(Halide::Var());
 	}
 
-	constexpr float pi = 3.14159265358979323846f;
-	constexpr float two_pi = 2.0f * pi;
+	// pi/2pi are made in the input's own float type (the f32 constants are
+	// unchanged — 2*(float)pi doubles exactly; f64 gets full-precision pi).
+	Halide::Type t = f.types()[0];
+	if (!t.is_float()) t = Halide::Float(32);
+	Halide::Expr pi = Halide::Internal::make_const(t, 3.14159265358979323846);
+	Halide::Expr two_pi = pi + pi;
 	Halide::Expr val = f(vars);
 	ret(vars) = Halide::clamp(
 		val - two_pi * Halide::floor((val + pi) / two_pi),

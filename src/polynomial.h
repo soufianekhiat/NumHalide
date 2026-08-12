@@ -35,8 +35,12 @@ Halide::Func polyval(Halide::Func coeffs, int n_coeffs, Halide::Func x_func, con
 		vars.push_back(Halide::Var());
 	}
 
-	// Build Horner's method expression in C++ loop
-	Halide::Expr result = Halide::cast<float>(coeffs(0));
+	// Build Horner's method expression in C++ loop. Seed in the
+	// coefficients' own float type (f64 coeffs keep f64 Horner steps);
+	// integer coeffs keep the historical f32 seed.
+	Halide::Type type = coeffs.types()[0];
+	if (!type.is_float()) type = Halide::Float(32);
+	Halide::Expr result = Halide::cast(type, coeffs(0));
 	Halide::Expr xval = x_func(vars);
 	for (int i = 1; i < n_coeffs; ++i) {
 		result = result * xval + coeffs(i);
@@ -179,8 +183,14 @@ Halide::Func chebyshev_t(int n, Halide::Func x_func, const shape_t& shape, std::
 
 	Halide::Expr xval = x_func(vars);
 
+	// Emit the constant arms in the input's own float type so a f64 input
+	// yields a f64 output for every degree (the n >= 1 arms follow xval's
+	// type through promotion; the exact 1.0/2.0 literals widen exactly).
+	Halide::Type type = x_func.types()[0];
+	if (!type.is_float()) type = Halide::Float(32);
+
 	if (n == 0) {
-		ret(vars) = 1.0f;
+		ret(vars) = Halide::Internal::make_one(type);
 	} else if (n == 1) {
 		ret(vars) = xval;
 	} else {
@@ -250,8 +260,15 @@ Halide::Func legendre_p(int n, Halide::Func x_func, const shape_t& shape, std::s
 
 	Halide::Expr xval = x_func(vars);
 
+	// Emit the constant arm in the input's own float type so a f64 input
+	// yields a f64 output for every degree (the n >= 1 arms follow xval's
+	// type through promotion; the host-float recurrence scalars fi are
+	// exact small integers, so widening is exact).
+	Halide::Type type = x_func.types()[0];
+	if (!type.is_float()) type = Halide::Float(32);
+
 	if (n == 0) {
-		ret(vars) = 1.0f;
+		ret(vars) = Halide::Internal::make_one(type);
 	} else if (n == 1) {
 		ret(vars) = xval;
 	} else {
@@ -733,9 +750,14 @@ inline Halide::Func polyfit(Halide::Func x, Halide::Func y, int n, int deg,
     int nc = deg + 1;   // number of coefficients
 
     // Vandermonde matrix: V(col=j, row=i) = x[i]^j  for j = 0..deg
+    // The exponent is made in x's own float type (small integers are exact
+    // in every float type, so this is value-identical; it keeps the pow —
+    // and the downstream lstsq — in f64 for f64 x).
+    Halide::Type vtype = x.types()[0];
+    if (!vtype.is_float()) vtype = Halide::Float(32);
     Halide::Var col("col_pf"), row("row_pf");
     Halide::Func V(name + "_V");
-    V(col, row) = Halide::pow(x(row), Halide::cast<float>(col));
+    V(col, row) = Halide::pow(x(row), Halide::cast(vtype, col));
     V.compute_root();
 
     // Solve V @ c = y in the least-squares sense via QR

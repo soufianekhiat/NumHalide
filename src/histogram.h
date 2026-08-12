@@ -112,9 +112,15 @@ Halide::Func histogram_equalize(Halide::Func f, const shape_t& shape, int bins =
 		vars.push_back(Halide::Var());
 	}
 
+	// Emit in the input's own float type (f64 stays f64); integer inputs
+	// keep the historical f32 output. The CDF entries and total are exact
+	// integer counts, so the casts are value-identical at f32.
+	Halide::Type type = f.types()[0];
+	if (!type.is_float()) type = Halide::Float(32);
+
 	Halide::Expr val = f(vars);
 	Halide::Expr bin_idx = Halide::clamp(Halide::cast<int32_t>(Halide::floor(val * bins)), 0, bins - 1);
-	ret(vars) = Halide::cast<float>(cdf(bin_idx)) / Halide::cast<float>(total);
+	ret(vars) = Halide::cast(type, cdf(bin_idx)) / Halide::cast(type, total);
 	return ret;
 }
 
@@ -160,7 +166,13 @@ Halide::Func gamma_correct(Halide::Func f, const shape_t& shape, Halide::Expr ga
 		vars.push_back(Halide::Var());
 	}
 
-	ret(vars) = Halide::pow(f(vars), 1.0f / gamma);
+	// The exponent 1/gamma is computed in the input's own float type so an
+	// f32 gamma Expr does not force an f32-precision exponent onto f64
+	// inputs (value-identical for f32 inputs).
+	Halide::Type type = f.types()[0];
+	if (!type.is_float()) type = Halide::Float(32);
+	ret(vars) = Halide::pow(f(vars),
+		Halide::Internal::make_one(type) / Halide::cast(type, gamma));
 	return ret;
 }
 
