@@ -1576,11 +1576,13 @@ inline SVDResult svd_jacobi(Halide::Func A, int m, int n,
 
 /// @brief Result of a symmetric eigendecomposition
 struct EighResult {
-    Halide::Func eigenvalues;   ///< 1D, n eigenvalues (unordered)
-    Halide::Func eigenvectors;  ///< n×n, eigenvectors(col, row) — columns are e-vectors
+    Halide::Func eigenvalues;   ///< 1D, n eigenvalues (legacy form: unordered;
+                                ///  typed overload: ASCENDING)
+    Halide::Func eigenvectors;  ///< n×n, eigenvectors(col, row) — columns are
+                                ///  e-vectors, paired with eigenvalues by index
 };
 
-/// @brief Symmetric eigendecomposition via classical Jacobi sweeps
+/// @brief Symmetric eigendecomposition via classical Jacobi sweeps (LEGACY)
 /// @param A        n×n symmetric matrix Func
 /// @param n        Matrix size
 /// @param n_sweeps Number of Jacobi sweeps (default 20)
@@ -1590,6 +1592,15 @@ struct EighResult {
 /// After convergence the diagonal of the working matrix holds the eigenvalues
 /// and V accumulates the eigenvectors (A = V · diag(λ) · V^T).
 /// Note: creates O(n_sweeps * n²) stages; keep n ≤ 8.
+///
+/// LEGACY BEHAVIOR, kept bit-for-bit for existing callers: computes in f32
+/// regardless of A's type, eigenvalues come out UNORDERED, eigenvector
+/// columns carry no sign convention, and the trig rotation
+/// (θ = ½·atan2(2·A_pq, A_pp − A_qq)) has a NaN derivative at diagonal
+/// inputs (atan2(0, 0)). New code should use the typed overload below
+/// (Type + eps parameters): type-generic, algebraic ζ/t/c/s rotations,
+/// ascending eigenvalues, sign-normalized eigenvector columns, and a skip
+/// guard that keeps reverse-mode derivatives finite.
 inline EighResult eigh_jacobi(Halide::Func A, int n,
     int n_sweeps = 20, std::string const& name = "eigh")
 {
@@ -1663,6 +1674,207 @@ inline EighResult eigh_jacobi(Halide::Func A, int n,
     evals(k) = Aw(k, k);
 
     return {evals, V};
+}
+
+/// @brief Symmetric eigendecomposition via ALGEBRAIC Jacobi sweeps (typed form)
+/// @param A        n×n symmetric matrix Func (A(col, row))
+/// @param n        Matrix size
+/// @param n_sweeps Number of Jacobi sweeps
+/// @param type     Element type to compute in (f32, f64, ...); A is cast to it
+/// @param eps      Off-diagonal skip threshold, an Expr in `type` and ≪ 1
+///                 (e.g. make_const(type, 1e-12)): |A_pq| < eps skips the
+///                 (p,q) rotation. Besides saving work on converged pivots,
+///                 this is what keeps reverse-mode derivatives FINITE at
+///                 diagonal inputs (the legacy trig form NaNs there).
+/// @param name     Base name. Default "eigh_t", deliberately distinct from
+///                 the legacy default "eigh" so both forms can coexist in
+///                 one pipeline without stage-name collisions.
+/// @return EighResult:
+///         - eigenvalues: 1D length n, sorted ASCENDING (stable)
+///         - eigenvectors: n×n (col, row); column k is the unit eigenvector
+///           of eigenvalues(k); each column is sign-normalized so its LAST
+///           component (row n−1) is ≥ 0
+///
+/// Overloading note: this is a true overload of eigh_jacobi. Resolution
+/// against the legacy form is unambiguous — the legacy form takes at most
+/// 4 arguments with a std::string 4th, this form takes at least 5 with a
+/// Halide::Type 4th, and neither type converts to the other.
+///
+/// Note: creates O(n_sweeps * n²) compute_root stages; keep n ≤ 8.
+inline EighResult eigh_jacobi(Halide::Func A, int n, int n_sweeps,
+    Halide::Type type, Halide::Expr eps, std::string const& name = "eigh_t")
+{
+    Halide::Var col("col"), row("row"), k("k");
+
+    Halide::Expr zero    = Halide::Internal::make_zero(type);
+    Halide::Expr one     = Halide::Internal::make_one(type);
+    Halide::Expr two     = Halide::Internal::make_const(type, 2.0);
+    Halide::Expr neg_one = Halide::Internal::make_const(type, -1.0);
+
+    // Working matrix (symmetric, converges to diagonal)
+    Halide::Func Aw(name + "_Aw0");
+    Aw(col, row) = Halide::cast(type, A(col, row));
+    Aw.compute_root();
+
+    // Eigenvector accumulation: starts as identity
+    Halide::Func V(name + "_V0");
+    V(col, row) = Halide::select(col == row, one, zero);
+    V.compute_root();
+
+    // ROTATION ALGEBRA — algebraic ζ/t/c/s form (no trig; the legacy trig
+    // θ = ½·atan2 form derives expensively under reverse-mode AD and its
+    // atan2(0,0) derivative is NaN at diagonal inputs).
+    //
+    // J is identity except J[p][p]=c, J[p][q]=s, J[q][p]=−s, J[q][q]=c.
+    // Update pairing: Aw' = Jᵀ·Aw·J while V accumulates V' = V·J, so
+    // Aw_final = Vᵀ·A·V = Λ, i.e. A = V·Λ·Vᵀ — columns of V are the
+    // eigenvectors, consistent with the gather below.
+    //
+    // Annihilation derivation (col p of J = c·e_p − s·e_q, col q of J =
+    // s·e_p + c·e_q, and A_qp = A_pq by symmetry):
+    //   A'_pq = (c·e_p − s·e_q)ᵀ A (s·e_p + c·e_q)
+    //         = c·s·(A_pp − A_qq) + (c² − s²)·A_pq.
+    // Setting A'_pq = 0 and dividing by c²·A_pq gives, with t = s/c and
+    //   ζ = (A_qq − A_pp) / (2·A_pq):        t² + 2·ζ·t − 1 = 0.
+    // The smaller-magnitude root t = sign(ζ)/(|ζ| + √(1+ζ²)) keeps
+    // |t| ≤ 1 (rotation ≤ 45°, the convergent choice), then
+    //   c = 1/√(1+t²),  s = t·c.
+    // These signs annihilate ONLY with the update
+    //   (p)' = c·(p) − s·(q),   (q)' = s·(p) + c·(q)
+    // applied to rows and columns of Aw and to columns of V — the same
+    // pairing svd_jacobi pins (the opposite-sign update is the historic
+    // svd oscillation bug: γ never reduced, sweeps oscillate).
+    // Diagonal effect of one rotation: A'_pp = A_pp − t·A_pq,
+    // A'_qq = A_qq + t·A_pq.
+    for (int sweep = 0; sweep < n_sweeps; ++sweep) {
+        for (int p = 0; p < n - 1; ++p) {
+            for (int q = p + 1; q < n; ++q) {
+                const std::string tag = name
+                    + "_s" + std::to_string(sweep)
+                    + "p" + std::to_string(p)
+                    + "q" + std::to_string(q);
+
+                // In Halide indexing Aw(col, row): A_pq = Aw(q, p)
+                Halide::Expr apq = Aw(q, p);
+                Halide::Expr app = Aw(p, p);
+                Halide::Expr aqq = Aw(q, q);
+
+                // SKIP GUARD via multiplied 0/1 indicators, NOT a select
+                // around the division: reverse-mode AD of a select
+                // synthesizes an f32 zero for the inactive arm, which
+                // type-clashes with the f64 derivative of a division in
+                // the arm (same rule as the svd_jacobi gathers). rot = 1
+                // applies the rotation; rot = 0 yields the exact identity
+                // (c = 1, s = 0) AND a zero adjoint through the rotation
+                // branch: 0 × finite = 0, and the guarded denominator
+                // below keeps the branch finite, so never inf × 0 = NaN.
+                Halide::Expr rot = Halide::cast(type, Halide::abs(apq) >= eps);
+                Halide::Expr skp = one - rot;
+
+                // Guarded denominator: when skipping, +skp shifts it to
+                // ≈1 (eps ≪ 1 ⇒ |2·A_pq + 1| ≥ 1 − 2·eps > 0); when
+                // rotating, skp = 0 and it is exactly 2·A_pq with
+                // |A_pq| ≥ eps. Finite everywhere, no select.
+                Halide::Expr zeta = (aqq - app) / (two * apq + skp);
+                Halide::Expr sgn_z = Halide::select(zeta >= zero, one, neg_one);
+                Halide::Expr t_r = sgn_z
+                    / (Halide::abs(zeta) + Halide::sqrt(one + zeta * zeta));
+
+                Halide::Func cs_f(tag + "_cs");
+                cs_f() = skp + rot * (one / Halide::sqrt(one + t_r * t_r));
+                cs_f.compute_root();
+
+                // rot² = rot and rot·skp = 0, so rot·cs_f()·t = rot·c_alg·t
+                // — reuses the staged cosine instead of recomputing it.
+                Halide::Func sn_f(tag + "_sn");
+                sn_f() = rot * cs_f() * t_r;
+                sn_f.compute_root();
+
+                // Row rotation: tmp = Jᵀ · Aw
+                //   row p' = c·row_p − s·row_q, row q' = s·row_p + c·row_q
+                Halide::Func tmp(tag + "_tmp");
+                tmp(col, row) = Aw(col, row);
+                { Halide::RDom rx1(0, n, "rx1_" + tag);
+                  tmp(rx1, p) = cs_f() * Aw(rx1, p) - sn_f() * Aw(rx1, q); }
+                { Halide::RDom rx2(0, n, "rx2_" + tag);
+                  tmp(rx2, q) = sn_f() * Aw(rx2, p) + cs_f() * Aw(rx2, q); }
+                tmp.compute_root();
+
+                // Column rotation: Aw' = tmp · J
+                //   col p' = c·col_p − s·col_q, col q' = s·col_p + c·col_q
+                Halide::Func Aw_next(tag + "_Aw");
+                Aw_next(col, row) = tmp(col, row);
+                { Halide::RDom ry1(0, n, "ry1_" + tag);
+                  Aw_next(p, ry1) = cs_f() * tmp(p, ry1) - sn_f() * tmp(q, ry1); }
+                { Halide::RDom ry2(0, n, "ry2_" + tag);
+                  Aw_next(q, ry2) = sn_f() * tmp(p, ry2) + cs_f() * tmp(q, ry2); }
+                Aw_next.compute_root();
+                Aw = Aw_next;
+
+                // Eigenvectors: V' = V · J (right multiply, same signs)
+                Halide::Func V_next(tag + "_V");
+                V_next(col, row) = V(col, row);
+                { Halide::RDom rv1(0, n, "rv1_" + tag);
+                  V_next(p, rv1) = cs_f() * V(p, rv1) - sn_f() * V(q, rv1); }
+                { Halide::RDom rv2(0, n, "rv2_" + tag);
+                  V_next(q, rv2) = sn_f() * V(p, rv2) + cs_f() * V(q, rv2); }
+                V_next.compute_root();
+                V = V_next;
+            }
+        }
+    }
+
+    // Raw eigenvalues = diagonal of converged Aw
+    Halide::Func lam_raw(name + "_lraw");
+    lam_raw(k) = Aw(k, k);
+    lam_raw.compute_root();
+
+    // ASCENDING order: stable rank of each diagonal entry, then gather.
+    // Same AD-safe machinery as svd_jacobi's descending-S sort, with the
+    // comparison flipped (< instead of >): rank(k) = number of entries
+    // ordered strictly before k in a stable ascending sort.
+    Halide::Func rank_f(name + "_rank");
+    rank_f(k) = Halide::cast<int32_t>(0);
+    { Halide::RDom rr(0, n, "rrank_" + name);
+      rank_f(k) += Halide::select(
+          lam_raw(rr) < lam_raw(k) || (lam_raw(rr) == lam_raw(k) && rr < k),
+          Halide::cast<int32_t>(1), Halide::cast<int32_t>(0)); }
+    rank_f.compute_root();
+
+    // Gathers use MULTIPLIED 0/1 indicators, not select: reverse-mode AD
+    // synthesizes a float32 zero for the inactive select branch, which
+    // type-clashes with f64 derivatives inside the arm. The indicator
+    // form derives cleanly in every type.
+    Halide::Func evals(name + "_evals");
+    { Halide::RDom rs(0, n, "rgl_" + name);
+      evals(k) = zero;
+      evals(k) += lam_raw(rs) * Halide::cast(type, rank_f(rs) == k); }
+    evals.compute_root();
+
+    // Eigenvector columns through the same permutation: output column k
+    // is V's column perm(k). Still (col, row) — columns stay col-major
+    // unit eigenvectors paired with evals by index.
+    Halide::Func V_sorted(name + "_Vs");
+    { Halide::RDom rv(0, n, "rgv_" + name);
+      V_sorted(col, row) = zero;
+      V_sorted(col, row) += V(rv, row) * Halide::cast(type, rank_f(rv) == col); }
+    V_sorted.compute_root();
+
+    // SIGN NORMALIZATION (deterministic output): after sorting, flip each
+    // column so its LAST component (row n−1) is ≥ 0 — the cheapest
+    // deterministic rule. Indicator form, no select:
+    //   s = [V(k, n−1) ≥ 0]·2 − 1 ∈ {−1, +1}
+    // A zero last component maps to +1 (0 ≥ 0 is true), so the rule is
+    // total; ±v are both unit eigenvectors, so flipping preserves every
+    // eigenpair property.
+    Halide::Func sgn_f(name + "_sgn");
+    sgn_f(k) = two * Halide::cast(type, V_sorted(k, n - 1) >= zero) - one;
+    sgn_f.compute_root();
+
+    Halide::Func evecs(name + "_evecs");
+    evecs(col, row) = V_sorted(col, row) * sgn_f(col);
+
+    return {evals, evecs};
 }
 
 // -----------------------------------------------------------------------------
