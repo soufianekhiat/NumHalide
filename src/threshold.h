@@ -7,6 +7,7 @@
 #pragma once
 
 #include "common.h"
+#include "soft.h"
 #include "shape.h"
 #include "histogram.h"
 
@@ -54,7 +55,10 @@ Halide::Func threshold_trunc(Halide::Func f, const shape_t& shape, Halide::Expr 
 	}
 
 	Halide::Type type = f.types()[0];
-	ret(vars) = Halide::min(f(vars), Halide::cast(type, thresh));
+	// soft_min, not Halide::min: reverse mode refuses the exact form, so a
+	// kernel delegating here had a wrong adjoint wherever the threshold
+	// broadcast against the buffer. Exact in a normal build.
+	ret(vars) = soft_min(f(vars), Halide::cast(type, thresh));
 	return ret;
 }
 

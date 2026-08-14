@@ -8,6 +8,7 @@
 
 #include "numhalide.h"
 #include "common.h"
+#include "soft.h"
 #include "shape.h"
 #include "broadcast.h"
 #include "factory_func.h"
