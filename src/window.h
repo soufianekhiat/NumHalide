@@ -2,6 +2,12 @@
 /// @brief Window functions for signal processing
 ///
 /// Provides: hanning, hamming, blackman, bartlett, kaiser
+///
+/// Each window has a TYPED form (trailing Halide::Type parameter) that
+/// computes and emits in that type (f32, f64, ...), plus the legacy form
+/// without a Type, which delegates to the typed form at Float(32)
+/// (value-identical to the historical f32 bodies — constants are folded
+/// to the same f32 values).
 
 #pragma once
 
@@ -11,57 +17,114 @@
 
 NS_NUM_HALIDE_BEGIN
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 // -----------------------------------------------------------------------------
 // Window Functions
 // -----------------------------------------------------------------------------
 
+/// @brief Hanning window, computed in `type`: 0.5 * (1 - cos(2*pi*n/(N-1)))
+/// @param size Window size
+/// @param type Computation and output type (e.g. Float(32), Float(64))
+/// @param name Function name
+inline Halide::Func hanning(Halide::Expr size, Halide::Type type,
+                            std::string const& name = "hanning") {
+	Halide::Func ret(name);
+	Halide::Var x;
+	Halide::Expr one    = Halide::Internal::make_one(type);
+	Halide::Expr half   = Halide::Internal::make_const(type, 0.5);
+	Halide::Expr two_pi = Halide::Internal::make_const(type, 2.0 * M_PI);
+	ret(x) = half * (one - Halide::cos(two_pi * Halide::cast(type, x) / Halide::cast(type, size - 1)));
+	return ret;
+}
+
 /// @brief Hanning window: 0.5 * (1 - cos(2*pi*n/(N-1)))
 /// @param size Window size
 /// @param name Function name
-/// @return 1D Halide::Func of float values
+/// @return 1D Halide::Func of float values (delegates to the typed form at
+///         Float(32); value-identical to the historical f32 body)
 inline Halide::Func hanning(Halide::Expr size, std::string const& name = "hanning") {
+	return hanning(size, Halide::Float(32), name);
+}
+
+/// @brief Hamming window, computed in `type`: 0.54 - 0.46 * cos(2*pi*n/(N-1))
+/// @param size Window size
+/// @param type Computation and output type (e.g. Float(32), Float(64))
+/// @param name Function name
+inline Halide::Func hamming(Halide::Expr size, Halide::Type type,
+                            std::string const& name = "hamming") {
 	Halide::Func ret(name);
 	Halide::Var x;
-	float pi = 3.14159265358979323846f;
-	ret(x) = 0.5f * (1.0f - Halide::cos(2.0f * pi * Halide::cast<float>(x) / Halide::cast<float>(size - 1)));
+	Halide::Expr a0     = Halide::Internal::make_const(type, 0.54);
+	Halide::Expr a1     = Halide::Internal::make_const(type, 0.46);
+	Halide::Expr two_pi = Halide::Internal::make_const(type, 2.0 * M_PI);
+	ret(x) = a0 - a1 * Halide::cos(two_pi * Halide::cast(type, x) / Halide::cast(type, size - 1));
 	return ret;
 }
 
 /// @brief Hamming window: 0.54 - 0.46 * cos(2*pi*n/(N-1))
 /// @param size Window size
 /// @param name Function name
-/// @return 1D Halide::Func of float values
+/// @return 1D Halide::Func of float values (delegates to the typed form at
+///         Float(32); value-identical to the historical f32 body)
 inline Halide::Func hamming(Halide::Expr size, std::string const& name = "hamming") {
+	return hamming(size, Halide::Float(32), name);
+}
+
+/// @brief Blackman window, computed in `type`:
+///        0.42 - 0.5*cos(2*pi*n/(N-1)) + 0.08*cos(4*pi*n/(N-1))
+/// @param size Window size
+/// @param type Computation and output type (e.g. Float(32), Float(64))
+/// @param name Function name
+inline Halide::Func blackman(Halide::Expr size, Halide::Type type,
+                             std::string const& name = "blackman") {
 	Halide::Func ret(name);
 	Halide::Var x;
-	float pi = 3.14159265358979323846f;
-	ret(x) = 0.54f - 0.46f * Halide::cos(2.0f * pi * Halide::cast<float>(x) / Halide::cast<float>(size - 1));
+	Halide::Expr a0     = Halide::Internal::make_const(type, 0.42);
+	Halide::Expr a1     = Halide::Internal::make_const(type, 0.5);
+	Halide::Expr a2     = Halide::Internal::make_const(type, 0.08);
+	Halide::Expr two_pi = Halide::Internal::make_const(type, 2.0 * M_PI);
+	// four_pi = two_pi + two_pi: exact doubling, so at Float(32) it equals
+	// the historical host-folded 4.0f * (float)M_PI constant bit-for-bit.
+	Halide::Expr four_pi = two_pi + two_pi;
+	Halide::Expr n = Halide::cast(type, x);
+	Halide::Expr N = Halide::cast(type, size - 1);
+	ret(x) = a0 - a1 * Halide::cos(two_pi * n / N) + a2 * Halide::cos(four_pi * n / N);
 	return ret;
 }
 
 /// @brief Blackman window: 0.42 - 0.5*cos(2*pi*n/(N-1)) + 0.08*cos(4*pi*n/(N-1))
 /// @param size Window size
 /// @param name Function name
-/// @return 1D Halide::Func of float values
+/// @return 1D Halide::Func of float values (delegates to the typed form at
+///         Float(32); value-identical to the historical f32 body)
 inline Halide::Func blackman(Halide::Expr size, std::string const& name = "blackman") {
+	return blackman(size, Halide::Float(32), name);
+}
+
+/// @brief Bartlett (triangular) window, computed in `type`: 1 - |2*n/(N-1) - 1|
+/// @param size Window size
+/// @param type Computation and output type (e.g. Float(32), Float(64))
+/// @param name Function name
+inline Halide::Func bartlett(Halide::Expr size, Halide::Type type,
+                             std::string const& name = "bartlett") {
 	Halide::Func ret(name);
 	Halide::Var x;
-	float pi = 3.14159265358979323846f;
-	Halide::Expr n = Halide::cast<float>(x);
-	Halide::Expr N = Halide::cast<float>(size - 1);
-	ret(x) = 0.42f - 0.5f * Halide::cos(2.0f * pi * n / N) + 0.08f * Halide::cos(4.0f * pi * n / N);
+	Halide::Expr one = Halide::Internal::make_one(type);
+	Halide::Expr two = Halide::Internal::make_const(type, 2.0);
+	ret(x) = one - Halide::abs(two * Halide::cast(type, x) / Halide::cast(type, size - 1) - one);
 	return ret;
 }
 
 /// @brief Bartlett (triangular) window: 1 - |2*n/(N-1) - 1|
 /// @param size Window size
 /// @param name Function name
-/// @return 1D Halide::Func of float values
+/// @return 1D Halide::Func of float values (delegates to the typed form at
+///         Float(32); value-identical to the historical f32 body)
 inline Halide::Func bartlett(Halide::Expr size, std::string const& name = "bartlett") {
-	Halide::Func ret(name);
-	Halide::Var x;
-	ret(x) = 1.0f - Halide::abs(2.0f * Halide::cast<float>(x) / Halide::cast<float>(size - 1) - 1.0f);
-	return ret;
+	return bartlett(size, Halide::Float(32), name);
 }
 
 /// @brief Approximate modified Bessel function I0 using series expansion
@@ -69,6 +132,10 @@ inline Halide::Func bartlett(Halide::Expr size, std::string const& name = "bartl
 /// @return Approximation of I0(x): 1 + (x/2)^2 + (x/2)^4/4 + (x/2)^6/36 + (x/2)^8/576 + (x/2)^10/14400
 ///
 /// Uses the first 6 terms of the series: I0(x) = sum_{k=0}^{inf} ((x/2)^k / k!)^2
+///
+/// @note LEGACY helper, kept for API stability. The truncation error grows
+/// with |x|; kaiser() now uses the Abramowitz & Stegun i0_expr from
+/// numeric.h (~1e-7 for all x) instead of this series.
 inline Halide::Expr bessel_i0_approx(Halide::Expr x) {
 	Halide::Expr half_x = x / 2.0f;
 	Halide::Expr h2 = half_x * half_x;
@@ -77,37 +144,6 @@ inline Halide::Expr bessel_i0_approx(Halide::Expr x) {
 	Halide::Expr h8 = h4 * h4;
 	Halide::Expr h10 = h8 * h2;
 	return 1.0f + h2 + h4 / 4.0f + h6 / 36.0f + h8 / 576.0f + h10 / 14400.0f;
-}
-
-/// @brief Kaiser window using polynomial approximation of I0
-/// @param size Window size
-/// @param beta Shape parameter (default 12.0)
-/// @param name Function name
-/// @return 1D Halide::Func of float values
-///
-/// Kaiser window: w(n) = I0(beta * sqrt(1 - (2n/(N-1) - 1)^2)) / I0(beta)
-/// where I0 is approximated by the first 6 terms of its series expansion.
-///
-/// @note The 6-term truncated series drifts from the true Bessel I0 as beta
-/// grows (the truncation error is beta-dependent and does not cancel in the
-/// ratio). The runtime overload below uses the Abramowitz & Stegun i0_expr
-/// (~1e-7 for all x) and is the A&S-accurate form; prefer it when Bessel
-/// conformance matters. This overload keeps its historical behavior.
-inline Halide::Func kaiser(int size, float beta = 12.0f, std::string const& name = "kaiser") {
-	Halide::Func ret(name);
-	Halide::Var x;
-	Halide::Expr n = Halide::cast<float>(x);
-	Halide::Expr N = Halide::cast<float>(size - 1);
-	// t = 2*n/(N-1) - 1, ranges from -1 to 1
-	Halide::Expr t = 2.0f * n / N - 1.0f;
-	// arg = beta * sqrt(1 - t^2)
-	// Clamp (1 - t^2) to avoid sqrt of negative due to floating point
-	Halide::Expr inner = Halide::max(1.0f - t * t, 0.0f);
-	Halide::Expr arg = beta * Halide::sqrt(inner);
-	// I0(arg) / I0(beta)
-	Halide::Expr i0_beta = bessel_i0_approx(Halide::Expr(beta));
-	ret(x) = bessel_i0_approx(arg) / i0_beta;
-	return ret;
 }
 
 /// @brief Kaiser window, RUNTIME size and beta, computed in `type`
@@ -120,9 +156,8 @@ inline Halide::Func kaiser(int size, float beta = 12.0f, std::string const& name
 /// @return 1D Halide::Func: w(i) = I0(beta * sqrt(1 - ((2i/(n-1)) - 1)^2)) / I0(beta)
 ///
 /// numpy.kaiser symmetric form, with I0 the Abramowitz & Stegun i0_expr
-/// (~1e-7 for all x) — unlike the compile-time overload above, whose
-/// 6-term truncated series deviates from the true Bessel ratio at large
-/// beta. Endpoints: w(0) = w(n-1) = 1 / I0(beta), center (odd n) = 1.
+/// (~1e-7 for all x). Endpoints: w(0) = w(n-1) = 1 / I0(beta), center
+/// (odd n) = 1.
 inline Halide::Func kaiser(Halide::Expr n, Halide::Expr beta, Halide::Type type,
                            std::string const& name = "kaiser_rt") {
 	Halide::Func ret(name);
@@ -141,6 +176,25 @@ inline Halide::Func kaiser(Halide::Expr n, Halide::Expr beta, Halide::Type type,
 	Halide::Expr arg = fb * Halide::sqrt(inner);
 	ret(x) = i0_expr(arg) / i0_expr(fb);
 	return ret;
+}
+
+/// @brief Kaiser window (compile-time size, f32 values)
+/// @param size Window size
+/// @param beta Shape parameter (default 12.0)
+/// @param name Function name
+/// @return 1D Halide::Func of float values
+///
+/// Kaiser window: w(n) = I0(beta * sqrt(1 - (2n/(N-1) - 1)^2)) / I0(beta)
+///
+/// Delegates to the typed runtime overload above at Float(32), so I0 is
+/// the Abramowitz & Stegun i0_expr (~1e-7 for all x). NOTE: this is an
+/// ACCURACY IMPROVEMENT over the historical body, which used a 6-term
+/// truncated series (bessel_i0_approx) whose beta-dependent truncation
+/// error does not cancel in the I0 ratio and drifts from the true Bessel
+/// ratio as beta grows. Values therefore differ from the pre-delegation
+/// form (they now match numpy.kaiser to ~1e-6 at f32).
+inline Halide::Func kaiser(int size, float beta = 12.0f, std::string const& name = "kaiser") {
+	return kaiser(Halide::Expr(size), Halide::Expr(beta), Halide::Float(32), name);
 }
 
 NS_NUM_HALIDE_END

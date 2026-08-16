@@ -23,7 +23,12 @@ inline Halide::Func fft_fast(Halide::Func input, int N,
                "fft_fast: N must be power of 2, got %d", N);
 
     const int log2N = (int)std::round(std::log2((double)N));
-    const float pi = (float)M_PI;
+
+    // Compute in the input's own float type (f64 stays f64); integer
+    // inputs keep the historical f32 path. For f32 the folded twiddle
+    // constants are bit-identical to the old -2.0f * (float)M_PI product.
+    Halide::Type t = input.types()[0];
+    if (!t.is_float()) t = Halide::Float(32);
 
     // Build compile-time bit-reversal table
     std::vector<int32_t> br(N);
@@ -43,8 +48,8 @@ inline Halide::Func fft_fast(Halide::Func input, int N,
     Halide::Func stage0(name + "_s0");
     Halide::Expr br_idx = Halide::clamp(br_buf(Halide::clamp(k, 0, N - 1)), 0, N - 1);
     stage0(k) = Halide::Tuple(
-        Halide::cast<float>(input(br_idx)[0]),
-        Halide::cast<float>(input(br_idx)[1])
+        Halide::cast(t, input(br_idx)[0]),
+        Halide::cast(t, input(br_idx)[1])
     );
     stage0.compute_root();
 
@@ -62,7 +67,9 @@ inline Halide::Func fft_fast(Halide::Func input, int N,
         // Twiddle index (0..stride-1)
         Halide::Expr tw_idx = Halide::select(is_top, wg, wg - stride);
         // Forward FFT: angle = -2*pi*tw_idx / group
-        Halide::Expr angle  = -2.0f * pi * Halide::cast<float>(tw_idx) / (float)group;
+        Halide::Expr angle  = Halide::Internal::make_const(t, -2.0 * M_PI)
+                              * Halide::cast(t, tw_idx)
+                              / Halide::Internal::make_const(t, (double)group);
         Halide::Expr tw_re  = Halide::cos(angle);
         Halide::Expr tw_im  = Halide::sin(angle);
 
@@ -102,8 +109,13 @@ inline Halide::Func ifft_fast(Halide::Func input, int N,
 
     auto fwd = fft_fast(ci, N, name + "_fwd");
 
+    // Divide in the transform's own type (fwd follows the input's float
+    // type); the folded (T)N constant is bit-identical for f32.
+    Halide::Type t = fwd.types()[0];
+    Halide::Expr nf = Halide::Internal::make_const(t, (double)N);
+
     Halide::Func ret(name);
-    ret(k) = Halide::Tuple(fwd(k)[0] / (float)N, -fwd(k)[1] / (float)N);
+    ret(k) = Halide::Tuple(fwd(k)[0] / nf, -fwd(k)[1] / nf);
     return ret;
 }
 
@@ -118,7 +130,11 @@ inline Halide::Func fft2d_fast(Halide::Func input, int rows, int cols,
 
     const int logC = (int)std::round(std::log2((double)cols));
     const int logR = (int)std::round(std::log2((double)rows));
-    const float pi = (float)M_PI;
+
+    // Compute in the input's own float type (f64 stays f64); integer
+    // inputs keep the historical f32 path.
+    Halide::Type t = input.types()[0];
+    if (!t.is_float()) t = Halide::Float(32);
 
     // ---- build bit-reversal tables ----
     std::vector<int32_t> brx(cols), bry(rows);
@@ -146,8 +162,8 @@ inline Halide::Func fft2d_fast(Halide::Func input, int rows, int cols,
     Halide::Func sx0(name + "_sx0");
     Halide::Expr bx = Halide::clamp(brx_buf(Halide::clamp(x, 0, cols - 1)), 0, cols - 1);
     sx0(x, y) = Halide::Tuple(
-        Halide::cast<float>(input(bx, y)[0]),
-        Halide::cast<float>(input(bx, y)[1])
+        Halide::cast(t, input(bx, y)[0]),
+        Halide::cast(t, input(bx, y)[1])
     );
     sx0.compute_root();
 
@@ -159,7 +175,9 @@ inline Halide::Func fft2d_fast(Halide::Func input, int rows, int cols,
         Halide::Expr wg     = x % group;
         Halide::Expr is_top = wg < stride;
         Halide::Expr tw_idx = Halide::select(is_top, wg, wg - stride);
-        Halide::Expr angle  = -2.0f * pi * Halide::cast<float>(tw_idx) / (float)group;
+        Halide::Expr angle  = Halide::Internal::make_const(t, -2.0 * M_PI)
+                              * Halide::cast(t, tw_idx)
+                              / Halide::Internal::make_const(t, (double)group);
         Halide::Expr tw_re  = Halide::cos(angle), tw_im = Halide::sin(angle);
         Halide::Expr x_top  = Halide::clamp(Halide::select(is_top, x, x - stride), 0, cols - 1);
         Halide::Expr x_bot  = Halide::clamp(Halide::select(is_top, x + stride, x), 0, cols - 1);
@@ -188,7 +206,9 @@ inline Halide::Func fft2d_fast(Halide::Func input, int rows, int cols,
         Halide::Expr wg     = y % group;
         Halide::Expr is_top = wg < stride;
         Halide::Expr tw_idx = Halide::select(is_top, wg, wg - stride);
-        Halide::Expr angle  = -2.0f * pi * Halide::cast<float>(tw_idx) / (float)group;
+        Halide::Expr angle  = Halide::Internal::make_const(t, -2.0 * M_PI)
+                              * Halide::cast(t, tw_idx)
+                              / Halide::Internal::make_const(t, (double)group);
         Halide::Expr tw_re  = Halide::cos(angle), tw_im = Halide::sin(angle);
         Halide::Expr y_top  = Halide::clamp(Halide::select(is_top, y, y - stride), 0, rows - 1);
         Halide::Expr y_bot  = Halide::clamp(Halide::select(is_top, y + stride, y), 0, rows - 1);
@@ -213,7 +233,11 @@ inline Halide::Func ifft2d_fast(Halide::Func input, int rows, int cols,
     Halide::Func ci(name + "_ci");
     ci(x, y) = Halide::Tuple(input(x, y)[0], -input(x, y)[1]);
     auto fwd = fft2d_fast(ci, rows, cols, name + "_fwd");
-    float scale = 1.0f / (float)(rows * cols);
+    // Scale in the transform's own type (fwd follows the input's float
+    // type); the folded 1/(rows*cols) constant is bit-identical for f32.
+    Halide::Type t = fwd.types()[0];
+    Halide::Expr scale = Halide::Internal::make_one(t)
+                         / Halide::Internal::make_const(t, (double)rows * (double)cols);
     Halide::Func ret(name);
     ret(x, y) = Halide::Tuple(fwd(x, y)[0] * scale, -fwd(x, y)[1] * scale);
     return ret;

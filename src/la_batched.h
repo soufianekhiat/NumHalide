@@ -32,8 +32,15 @@ Halide::Func batched_cholesky(Halide::Func A, int n, int batch,
 {
     Halide::Var col("col"), row("row"), b("b");
 
+    // Compute in A's own float type (f64 stays f64); integer inputs keep
+    // the historical f32 path. The sqrt floor keeps the old 1e-12 value,
+    // made in that type.
+    Halide::Type type = A.types()[0];
+    if (!type.is_float()) type = Halide::Float(32);
+    Halide::Expr zero = Halide::Internal::make_zero(type);
+
     Halide::Func L_cur(name + "_init");
-    L_cur(col, row, b) = 0.0f;
+    L_cur(col, row, b) = zero;
     L_cur.compute_root();
 
     for (int j = 0; j < n; ++j) {
@@ -41,7 +48,7 @@ Halide::Func batched_cholesky(Halide::Func A, int n, int batch,
 
         // ss(b) = sum_{k<j} L[b, j, k]^2
         Halide::Func ss(name + "_ss" + sj);
-        ss(b) = 0.0f;
+        ss(b) = zero;
         if (j > 0) {
             Halide::RDom rk(0, j, "rkss_b" + sj);
             ss(b) += L_cur(rk, j, b) * L_cur(rk, j, b);
@@ -50,12 +57,13 @@ Halide::Func batched_cholesky(Halide::Func A, int n, int batch,
 
         // diag_j(b) = sqrt(A[b,j,j] - ss(b))
         Halide::Func diag_j(name + "_dj" + sj);
-        diag_j(b) = Halide::sqrt(Halide::max(A(j, j, b) - ss(b), 1e-12f));
+        diag_j(b) = Halide::sqrt(Halide::max(Halide::cast(type, A(j, j, b)) - ss(b),
+            Halide::Internal::make_const(type, 1e-12)));
         diag_j.compute_root();
 
         // dots(row, b) = sum_{k<j} L[b, row, k] * L[b, j, k]
         Halide::Func dots(name + "_dt" + sj);
-        dots(row, b) = 0.0f;
+        dots(row, b) = zero;
         if (j > 0) {
             Halide::RDom rk(0, j, "rkd_b" + sj);
             dots(row, b) += L_cur(rk, row, b) * L_cur(rk, j, b);
@@ -113,16 +121,22 @@ BatchedQRResult batched_qr_gs(Halide::Func A, int m, int n, int batch,
 
     Halide::Var col("col"), row("row"), b("b");
 
+    // Compute in A's own float type (f64 stays f64); integer inputs keep
+    // the historical f32 path.
+    Halide::Type type = A.types()[0];
+    if (!type.is_float()) type = Halide::Float(32);
+    Halide::Expr zero = Halide::Internal::make_zero(type);
+
     Halide::Func Aw(name + "_aw0");
-    Aw(col, row, b) = A(col, row, b);
+    Aw(col, row, b) = Halide::cast(type, A(col, row, b));
     Aw.compute_root();
 
     Halide::Func Q(name + "_q0");
-    Q(col, row, b) = 0.0f;
+    Q(col, row, b) = zero;
     Q.compute_root();
 
     Halide::Func R(name + "_r0");
-    R(col, row, b) = 0.0f;
+    R(col, row, b) = zero;
     R.compute_root();
 
     for (int k = 0; k < n; ++k) {
@@ -130,7 +144,7 @@ BatchedQRResult batched_qr_gs(Halide::Func A, int m, int n, int batch,
 
         // ss_k(b) = ||Aw[:,k,b]||^2
         Halide::Func ss_k(name + "_ssk" + sk);
-        ss_k(b) = 0.0f;
+        ss_k(b) = zero;
         { Halide::RDom rn(0, m, "rn_" + name + sk);
           ss_k(b) += Aw(k, rn, b) * Aw(k, rn, b); }
         ss_k.compute_root();
@@ -161,7 +175,7 @@ BatchedQRResult batched_qr_gs(Halide::Func A, int m, int n, int batch,
         if (k < n - 1) {
             // dp(col, b) = Q[:,k,b] · Aw[:,col,b]
             Halide::Func dp(name + "_dp" + sk);
-            dp(col, b) = 0.0f;
+            dp(col, b) = zero;
             { Halide::RDom rd(0, m, "rd_" + name + sk);
               dp(col, b) += Q(k, rd, b) * Aw(col, rd, b); }
             dp.compute_root();
@@ -224,14 +238,21 @@ BatchedSVDResult batched_svd_jacobi(Halide::Func A, int m, int n, int batch,
 {
     Halide::Var col("col"), row("row"), b("b"), k("k");
 
+    // Compute in A's own float type (f64 stays f64); integer inputs keep
+    // the historical f32 path.
+    Halide::Type type = A.types()[0];
+    if (!type.is_float()) type = Halide::Float(32);
+    Halide::Expr zero = Halide::Internal::make_zero(type);
+    Halide::Expr one  = Halide::Internal::make_one(type);
+
     // W(col, row, b) starts as A
     Halide::Func W(name + "_W0");
-    W(col, row, b) = Halide::cast<float>(A(col, row, b));
+    W(col, row, b) = Halide::cast(type, A(col, row, b));
     W.compute_root();
 
     // V(col, row, b) starts as identity (per batch)
     Halide::Func V(name + "_V0");
-    V(col, row, b) = Halide::select(col == row, 1.0f, 0.0f);
+    V(col, row, b) = Halide::select(col == row, one, zero);
     V.compute_root();
 
     for (int sweep = 0; sweep < n_sweeps; ++sweep) {
@@ -244,69 +265,92 @@ BatchedSVDResult batched_svd_jacobi(Halide::Func A, int m, int n, int batch,
 
                 // alpha(b) = W[:,p,b] · W[:,p,b]
                 Halide::Func alpha(tag + "_a");
-                alpha(b) = 0.0f;
+                alpha(b) = zero;
                 { Halide::RDom ra(0, m, "ra_" + tag);
                   alpha(b) += W(p, ra, b) * W(p, ra, b); }
                 alpha.compute_root();
 
                 Halide::Func beta(tag + "_b");
-                beta(b) = 0.0f;
+                beta(b) = zero;
                 { Halide::RDom rb2(0, m, "rb_" + tag);
                   beta(b) += W(q, rb2, b) * W(q, rb2, b); }
                 beta.compute_root();
 
                 Halide::Func gam(tag + "_g");
-                gam(b) = 0.0f;
+                gam(b) = zero;
                 { Halide::RDom rg(0, m, "rg_" + tag);
                   gam(b) += W(p, rg, b) * W(q, rg, b); }
                 gam.compute_root();
 
-                // Jacobi rotation (per batch)
+                // Jacobi rotation (per batch).
+                //
+                // SKIP GUARD via multiplied 0/1 indicators, NOT a select
+                // around the division: reverse-mode AD of a select
+                // synthesizes an f32 zero for the inactive arm, which
+                // type-clashes with the f64 derivative of the ζ division
+                // inside the arm (same form as svd_jacobi in la.h).
+                // rot = 1 applies the rotation; rot = 0 yields the exact
+                // identity (cs = 1, sn = 0), and the guarded denominator
+                // keeps the skipped branch finite (|2γ + 1| ≥ 1 − 2e-10).
                 Halide::Func cs_f(tag + "_cs");
                 {
                     Halide::Expr g    = gam(b);
-                    Halide::Expr skip = Halide::abs(g) < 1e-10f;
-                    Halide::Expr zeta = (beta(b) - alpha(b)) / (2.0f * g);
+                    Halide::Expr rot  = Halide::cast(type,
+                        Halide::abs(g) >= Halide::Internal::make_const(type, 1e-10));
+                    Halide::Expr skp  = one - rot;
+                    Halide::Expr zeta = (beta(b) - alpha(b))
+                        / (Halide::Internal::make_const(type, 2.0) * g + skp);
                     Halide::Expr abz  = Halide::abs(zeta);
-                    Halide::Expr t    = Halide::select(zeta >= 0.0f, 1.0f, -1.0f)
-                                        / (abz + Halide::sqrt(1.0f + zeta * zeta));
-                    cs_f(b) = Halide::select(skip, 1.0f,
-                        1.0f / Halide::sqrt(1.0f + t * t));
+                    Halide::Expr t    = Halide::select(zeta >= zero, one,
+                                            Halide::Internal::make_const(type, -1.0))
+                                        / (abz + Halide::sqrt(one + zeta * zeta));
+                    cs_f(b) = skp + rot * (one / Halide::sqrt(one + t * t));
                 }
                 cs_f.compute_root();
 
                 Halide::Func sn_f(tag + "_sn");
                 {
                     Halide::Expr g    = gam(b);
-                    Halide::Expr skip = Halide::abs(g) < 1e-10f;
-                    Halide::Expr zeta = (beta(b) - alpha(b)) / (2.0f * g);
+                    Halide::Expr rot  = Halide::cast(type,
+                        Halide::abs(g) >= Halide::Internal::make_const(type, 1e-10));
+                    Halide::Expr skp  = one - rot;
+                    Halide::Expr zeta = (beta(b) - alpha(b))
+                        / (Halide::Internal::make_const(type, 2.0) * g + skp);
                     Halide::Expr abz  = Halide::abs(zeta);
-                    Halide::Expr t    = Halide::select(zeta >= 0.0f, 1.0f, -1.0f)
-                                        / (abz + Halide::sqrt(1.0f + zeta * zeta));
-                    sn_f(b) = Halide::select(skip, 0.0f, cs_f(b) * t);
+                    Halide::Expr t    = Halide::select(zeta >= zero, one,
+                                            Halide::Internal::make_const(type, -1.0))
+                                        / (abz + Halide::sqrt(one + zeta * zeta));
+                    // rot·cs·t: 0 when skipping, cs·t when rotating.
+                    sn_f(b) = rot * cs_f(b) * t;
                 }
                 sn_f.compute_root();
 
-                // Update W[:,p,b] and W[:,q,b]
+                // Update W[:,p,b] and W[:,q,b]. Rotation-sign convention: the
+                // t from t^2 + 2*zeta*t - 1 = 0 pairs with wp' = c*wp - s*wq /
+                // wq' = s*wp + c*wq — the annihilating convention svd_jacobi
+                // was fixed to (commit 6ccebe2). The old opposite pairing
+                // OSCILLATED: measured max|U^T U - I| of 0.27..0.49 at sweeps
+                // 4/10/30, invisible to reconstruction since U*S*V^T = A holds
+                // for any orthogonally-drifting pair.
                 Halide::Func W_next(tag + "_W");
                 W_next(col, row, b) = W(col, row, b);
                 { Halide::RDom rp(0, m, 0, batch, "rWp_" + tag);
                   W_next(p, rp.x, rp.y) =  cs_f(rp.y) * W(p, rp.x, rp.y)
-                                           + sn_f(rp.y) * W(q, rp.x, rp.y); }
+                                           - sn_f(rp.y) * W(q, rp.x, rp.y); }
                 { Halide::RDom rq(0, m, 0, batch, "rWq_" + tag);
-                  W_next(q, rq.x, rq.y) = -sn_f(rq.y) * W(p, rq.x, rq.y)
+                  W_next(q, rq.x, rq.y) =  sn_f(rq.y) * W(p, rq.x, rq.y)
                                            + cs_f(rq.y) * W(q, rq.x, rq.y); }
                 W_next.compute_root();
                 W = W_next;
 
-                // Update V[:,p,b] and V[:,q,b]
+                // Update V[:,p,b] and V[:,q,b] with the same pairing.
                 Halide::Func V_next(tag + "_V");
                 V_next(col, row, b) = V(col, row, b);
                 { Halide::RDom rvp(0, n, 0, batch, "rVp_" + tag);
                   V_next(p, rvp.x, rvp.y) =  cs_f(rvp.y) * V(p, rvp.x, rvp.y)
-                                             + sn_f(rvp.y) * V(q, rvp.x, rvp.y); }
+                                             - sn_f(rvp.y) * V(q, rvp.x, rvp.y); }
                 { Halide::RDom rvq(0, n, 0, batch, "rVq_" + tag);
-                  V_next(q, rvq.x, rvq.y) = -sn_f(rvq.y) * V(p, rvq.x, rvq.y)
+                  V_next(q, rvq.x, rvq.y) =  sn_f(rvq.y) * V(p, rvq.x, rvq.y)
                                              + cs_f(rvq.y) * V(q, rvq.x, rvq.y); }
                 V_next.compute_root();
                 V = V_next;
@@ -316,7 +360,7 @@ BatchedSVDResult batched_svd_jacobi(Halide::Func A, int m, int n, int batch,
 
     // S(k, b) = ||W[:,k,b]||
     Halide::Func ss_sv(name + "_ss");
-    ss_sv(k, b) = 0.0f;
+    ss_sv(k, b) = zero;
     { Halide::RDom rsv(0, m, "rsv_" + name);
       ss_sv(k, b) += W(k, rsv, b) * W(k, rsv, b); }
     ss_sv.compute_root();

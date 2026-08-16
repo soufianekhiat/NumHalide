@@ -35,8 +35,13 @@ Halide::Func cdist_euclidean(Halide::Func a, Halide::Func b, int /*n_a*/, int /*
 	Halide::Var i, j;
 	Halide::RDom d(0, dim);
 
-	Halide::Expr diff = a(d, i) - b(d, j);
-	sq_sum(j, i) = Halide::cast<float>(0);
+	// Accumulate in the inputs' own float type (f64 stays f64); integer
+	// inputs keep the historical f32 accumulation.
+	Halide::Type type = a.types()[0];
+	if (!type.is_float()) type = Halide::Float(32);
+
+	Halide::Expr diff = Halide::cast(type, a(d, i)) - Halide::cast(type, b(d, j));
+	sq_sum(j, i) = Halide::cast(type, 0);
 	sq_sum(j, i) += diff * diff;
 
 	// Take sqrt
@@ -60,8 +65,13 @@ Halide::Func cdist_manhattan(Halide::Func a, Halide::Func b, int /*n_a*/, int /*
 	Halide::Var i, j;
 	Halide::RDom d(0, dim);
 
-	Halide::Expr diff = a(d, i) - b(d, j);
-	ret(j, i) = Halide::cast<float>(0);
+	// Accumulate in the inputs' own float type (f64 stays f64); integer
+	// inputs keep the historical f32 accumulation.
+	Halide::Type type = a.types()[0];
+	if (!type.is_float()) type = Halide::Float(32);
+
+	Halide::Expr diff = Halide::cast(type, a(d, i)) - Halide::cast(type, b(d, j));
+	ret(j, i) = Halide::cast(type, 0);
 	ret(j, i) += Halide::abs(diff);
 	return ret;
 }
@@ -78,24 +88,30 @@ Halide::Func cosine_similarity(Halide::Func a, Halide::Func b, const shape_t& sh
 	nh_require(shape.rank == 1, "cosine_similarity requires 1D vectors");
 	int N = shape.extents[0];
 
+	// Accumulate in the inputs' own float type (f64 stays f64); integer
+	// inputs keep the historical f32 accumulation. The denominator floor
+	// is made in that type (same f32 value as the old 1e-10f literal).
+	Halide::Type type = a.types()[0];
+	if (!type.is_float()) type = Halide::Float(32);
+
 	Halide::Func dot_ab(name + "_dot");
 	Halide::Func norm_a(name + "_na");
 	Halide::Func norm_b(name + "_nb");
 	Halide::Var dummy;
 	Halide::RDom r(0, N);
 
-	dot_ab(dummy) = Halide::cast<float>(0);
-	dot_ab(dummy) += Halide::cast<float>(a(r)) * Halide::cast<float>(b(r));
+	dot_ab(dummy) = Halide::cast(type, 0);
+	dot_ab(dummy) += Halide::cast(type, a(r)) * Halide::cast(type, b(r));
 
-	norm_a(dummy) = Halide::cast<float>(0);
-	norm_a(dummy) += Halide::cast<float>(a(r)) * Halide::cast<float>(a(r));
+	norm_a(dummy) = Halide::cast(type, 0);
+	norm_a(dummy) += Halide::cast(type, a(r)) * Halide::cast(type, a(r));
 
-	norm_b(dummy) = Halide::cast<float>(0);
-	norm_b(dummy) += Halide::cast<float>(b(r)) * Halide::cast<float>(b(r));
+	norm_b(dummy) = Halide::cast(type, 0);
+	norm_b(dummy) += Halide::cast(type, b(r)) * Halide::cast(type, b(r));
 
 	Halide::Func ret(name);
 	Halide::Expr denom = Halide::sqrt(norm_a(dummy)) * Halide::sqrt(norm_b(dummy));
-	ret(dummy) = dot_ab(dummy) / Halide::max(denom, 1e-10f);
+	ret(dummy) = dot_ab(dummy) / Halide::max(denom, Halide::Internal::make_const(type, 1e-10));
 	return ret;
 }
 

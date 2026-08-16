@@ -111,21 +111,28 @@ Halide::Func fft_1d_c2c(Halide::Func input, int N, int sign, std::string const& 
     nh_require(N > 0, "FFT size must be positive, got %d", N);
     nh_require(sign == -1 || sign == 1, "FFT sign must be -1 or +1");
 
-    const float pi = static_cast<float>(M_PI);
+    // Compute in the input's own float type (f64 stays f64); integer
+    // inputs keep the historical f32 path. Twiddle constants are made in
+    // that type — for f32 the folded constant is bit-identical to the old
+    // sign * 2.0f * (float)M_PI product.
+    Halide::Type t = input.types()[0];
+    if (!t.is_float()) t = Halide::Float(32);
 
     Halide::Func result(name);
     Halide::Var k("k");
     Halide::RDom n(0, N);
 
     // DFT: X[k] = sum_{n=0}^{N-1} x[n] * exp(sign * j * 2 * pi * k * n / N)
-    Halide::Expr angle = sign * 2.0f * pi * Halide::cast<float>(k) * Halide::cast<float>(n) / static_cast<float>(N);
+    Halide::Expr two_pi = Halide::Internal::make_const(t, sign * 2.0 * M_PI);
+    Halide::Expr angle = two_pi * Halide::cast(t, k) * Halide::cast(t, n)
+                         / Halide::Internal::make_const(t, static_cast<double>(N));
     Halide::Expr tw_re = Halide::cos(angle);
     Halide::Expr tw_im = Halide::sin(angle);
 
     // x[n] * twiddle = (x_re + j*x_im) * (tw_re + j*tw_im)
     //                = (x_re*tw_re - x_im*tw_im) + j*(x_re*tw_im + x_im*tw_re)
-    Halide::Expr x_re = input(n)[0];
-    Halide::Expr x_im = input(n)[1];
+    Halide::Expr x_re = Halide::cast(t, input(n)[0]);
+    Halide::Expr x_im = Halide::cast(t, input(n)[1]);
     Halide::Expr prod_re = x_re * tw_re - x_im * tw_im;
     Halide::Expr prod_im = x_re * tw_im + x_im * tw_re;
 
@@ -167,9 +174,15 @@ Halide::Func ifft_normalized(Halide::Func input, int N, std::string const& name 
 {
     auto raw = fft_1d_c2c(input, N, 1, name + "_raw");
 
+    // Scale in the transform's own type (raw follows the input's float
+    // type). The folded 1/N constant is bit-identical to the old
+    // 1.0f / (float)N for f32.
+    Halide::Type t = raw.types()[0];
+
     Halide::Func result(name);
     Halide::Var x("x");
-    Halide::Expr scale = 1.0f / static_cast<float>(N);
+    Halide::Expr scale = Halide::Internal::make_one(t)
+                         / Halide::Internal::make_const(t, static_cast<double>(N));
 
     result(x) = Halide::Tuple(raw(x)[0] * scale, raw(x)[1] * scale);
 
@@ -197,7 +210,12 @@ Halide::Func fft_2d_c2c(Halide::Func input, int rows, int cols, int sign,
 {
     nh_require(rows > 0 && cols > 0, "FFT sizes must be positive, got %d x %d", rows, cols);
 
-    const float pi = static_cast<float>(M_PI);
+    // Compute in the input's own float type (f64 stays f64); integer
+    // inputs keep the historical f32 path. For f32 the folded twiddle
+    // constants are bit-identical to the old sign * 2.0f * (float)M_PI.
+    Halide::Type t = input.types()[0];
+    if (!t.is_float()) t = Halide::Float(32);
+    Halide::Expr two_pi = Halide::Internal::make_const(t, sign * 2.0 * M_PI);
 
     Halide::Var kx("kx"), ky("ky");
 
@@ -205,12 +223,13 @@ Halide::Func fft_2d_c2c(Halide::Func input, int rows, int cols, int sign,
     Halide::Func fft_x(name + "_x");
     Halide::RDom nx(0, cols);
 
-    Halide::Expr angle_x = sign * 2.0f * pi * Halide::cast<float>(kx) * Halide::cast<float>(nx) / static_cast<float>(cols);
+    Halide::Expr angle_x = two_pi * Halide::cast(t, kx) * Halide::cast(t, nx)
+                           / Halide::Internal::make_const(t, static_cast<double>(cols));
     Halide::Expr tw_x_re = Halide::cos(angle_x);
     Halide::Expr tw_x_im = Halide::sin(angle_x);
 
-    Halide::Expr x_re = input(nx, ky)[0];
-    Halide::Expr x_im = input(nx, ky)[1];
+    Halide::Expr x_re = Halide::cast(t, input(nx, ky)[0]);
+    Halide::Expr x_im = Halide::cast(t, input(nx, ky)[1]);
     Halide::Expr prod_x_re = x_re * tw_x_re - x_im * tw_x_im;
     Halide::Expr prod_x_im = x_re * tw_x_im + x_im * tw_x_re;
 
@@ -221,7 +240,8 @@ Halide::Func fft_2d_c2c(Halide::Func input, int rows, int cols, int sign,
     Halide::Func result(name);
     Halide::RDom ny(0, rows);
 
-    Halide::Expr angle_y = sign * 2.0f * pi * Halide::cast<float>(ky) * Halide::cast<float>(ny) / static_cast<float>(rows);
+    Halide::Expr angle_y = two_pi * Halide::cast(t, ky) * Halide::cast(t, ny)
+                           / Halide::Internal::make_const(t, static_cast<double>(rows));
     Halide::Expr tw_y_re = Halide::cos(angle_y);
     Halide::Expr tw_y_im = Halide::sin(angle_y);
 
@@ -257,9 +277,14 @@ Halide::Func ifft2d_normalized(Halide::Func input, int rows, int cols,
 {
     auto raw = fft_2d_c2c(input, rows, cols, 1, name + "_raw");
 
+    // Scale in the transform's own type (raw follows the input's float
+    // type); folded 1/(rows*cols) is bit-identical to the old f32 form.
+    Halide::Type t = raw.types()[0];
+
     Halide::Func result(name);
     Halide::Var x("x"), y("y");
-    Halide::Expr scale = 1.0f / static_cast<float>(rows * cols);
+    Halide::Expr scale = Halide::Internal::make_one(t)
+                         / Halide::Internal::make_const(t, static_cast<double>(rows) * static_cast<double>(cols));
 
     result(x, y) = Halide::Tuple(raw(x, y)[0] * scale, raw(x, y)[1] * scale);
 

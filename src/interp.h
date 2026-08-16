@@ -73,20 +73,27 @@ Halide::Func interp1d_uniform(Halide::Func values, const shape_t& in_shape,
     Halide::Func ret(name);
     Halide::Var x("x");
 
+    // Interpolation weights are computed in the values' own float type
+    // (f64 stays f64 — f32 weights silently truncated f64 interpolation);
+    // integer values keep the historical f32 weights. scale itself is
+    // f32-quantized by the float API parameter.
+    Halide::Type ty = values.types()[0];
+    if (!ty.is_float()) ty = Halide::Float(32);
+
     // Map output index to input coordinate
-    Halide::Expr in_x = Halide::cast<float>(x) / scale;
+    Halide::Expr in_x = Halide::cast(ty, x) / Halide::cast(ty, scale);
 
     // Get integer indices
     Halide::Expr x0 = Halide::cast<int32_t>(Halide::floor(in_x));
     Halide::Expr x1 = x0 + 1;
-    Halide::Expr t = in_x - Halide::cast<float>(x0);
+    Halide::Expr t = in_x - Halide::cast(ty, x0);
 
     // Clamp indices
     x0 = Halide::clamp(x0, 0, n - 1);
     x1 = Halide::clamp(x1, 0, n - 1);
 
     // Interpolate
-    ret(x) = values(x0) * (1.0f - t) + values(x1) * t;
+    ret(x) = values(x0) * (Halide::Internal::make_one(ty) - t) + values(x1) * t;
 
     return ret;
 }
@@ -115,12 +122,19 @@ Halide::Func resize_bilinear(Halide::Func input, const shape_t& in_shape,
     Halide::Func ret(name);
     Halide::Var x("x"), y("y");
 
-    // Map output coordinates to input coordinates
-    Halide::Expr scale_x = Halide::cast<float>(in_cols - 1) / Halide::cast<float>(out_cols - 1);
-    Halide::Expr scale_y = Halide::cast<float>(in_rows - 1) / Halide::cast<float>(out_rows - 1);
+    // Interpolation weights are computed in the input's own float type
+    // (f64 stays f64 — f32 weights silently truncated f64 interpolation);
+    // integer inputs keep the historical f32 weights.
+    Halide::Type wt = input.types()[0];
+    if (!wt.is_float()) wt = Halide::Float(32);
+    Halide::Expr one = Halide::Internal::make_one(wt);
 
-    Halide::Expr in_x = Halide::cast<float>(x) * scale_x;
-    Halide::Expr in_y = Halide::cast<float>(y) * scale_y;
+    // Map output coordinates to input coordinates
+    Halide::Expr scale_x = Halide::cast(wt, in_cols - 1) / Halide::cast(wt, out_cols - 1);
+    Halide::Expr scale_y = Halide::cast(wt, in_rows - 1) / Halide::cast(wt, out_rows - 1);
+
+    Halide::Expr in_x = Halide::cast(wt, x) * scale_x;
+    Halide::Expr in_y = Halide::cast(wt, y) * scale_y;
 
     // Get integer indices
     Halide::Expr x0 = Halide::cast<int32_t>(Halide::floor(in_x));
@@ -128,8 +142,8 @@ Halide::Func resize_bilinear(Halide::Func input, const shape_t& in_shape,
     Halide::Expr x1 = x0 + 1;
     Halide::Expr y1 = y0 + 1;
 
-    Halide::Expr tx = in_x - Halide::cast<float>(x0);
-    Halide::Expr ty = in_y - Halide::cast<float>(y0);
+    Halide::Expr tx = in_x - Halide::cast(wt, x0);
+    Halide::Expr ty = in_y - Halide::cast(wt, y0);
 
     // Clamp indices
     x0 = Halide::clamp(x0, 0, in_cols - 1);
@@ -143,10 +157,10 @@ Halide::Func resize_bilinear(Halide::Func input, const shape_t& in_shape,
     Halide::Expr v01 = input(x0, y1);
     Halide::Expr v11 = input(x1, y1);
 
-    Halide::Expr top = v00 * (1.0f - tx) + v10 * tx;
-    Halide::Expr bottom = v01 * (1.0f - tx) + v11 * tx;
+    Halide::Expr top = v00 * (one - tx) + v10 * tx;
+    Halide::Expr bottom = v01 * (one - tx) + v11 * tx;
 
-    ret(x, y) = top * (1.0f - ty) + bottom * ty;
+    ret(x, y) = top * (one - ty) + bottom * ty;
 
     return ret;
 }

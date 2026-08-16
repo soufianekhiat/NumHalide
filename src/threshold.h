@@ -144,14 +144,21 @@ Halide::Func threshold_otsu(Halide::Func f, const shape_t& shape, int bins = 256
 	// Get optimal threshold as float in [0, 1]
 	Halide::Expr opt_thresh = Halide::cast<float>(best(0)[1]) / Halide::cast<float>(bins);
 
-	// Apply threshold
+	// Apply threshold — emit in the input's own type (f32-hardcoded output
+	// arms broke f64 inputs). The histogram statistics above deliberately
+	// stay f32: they operate on integer bin counts and the threshold is
+	// quantized to 1/bins anyway.
+	Halide::Type type = f.types()[0];
+	if (!type.is_float()) type = Halide::Float(32);
+
 	Halide::Func ret(name);
 	std::vector<Halide::Var> vars;
 	for (int i = 0; i < shape.rank; ++i) {
 		vars.push_back(Halide::Var());
 	}
 
-	ret(vars) = Halide::select(f(vars) > opt_thresh, 1.0f, 0.0f);
+	ret(vars) = Halide::select(f(vars) > opt_thresh,
+		Halide::cast(type, 1), Halide::cast(type, 0));
 	return ret;
 }
 
@@ -183,16 +190,22 @@ Halide::Func threshold_adaptive(Halide::Func f, const shape_t& shape, int block_
 	Halide::Expr ix = Halide::clamp(x + r.x, 0, cols - 1);
 	Halide::Expr iy = Halide::clamp(y + r.y, 0, rows - 1);
 
-	local_mean(x, y) = Halide::cast<float>(0);
+	// Accumulate and emit in the input's own float type (f64 stays f64);
+	// integer inputs keep the historical f32 path.
+	Halide::Type type = f.types()[0];
+	if (!type.is_float()) type = Halide::Float(32);
+
+	local_mean(x, y) = Halide::cast(type, 0);
 	local_mean(x, y) += f(ix, iy);
 
 	// Normalize by block area
 	Halide::Func mean_norm(name + "_mn");
-	mean_norm(x, y) = local_mean(x, y) / Halide::cast<float>(block_size * block_size);
+	mean_norm(x, y) = local_mean(x, y) / Halide::cast(type, block_size * block_size);
 
 	// Threshold: pixel > local_mean
 	Halide::Func ret(name);
-	ret(x, y) = Halide::select(f(x, y) > mean_norm(x, y), 1.0f, 0.0f);
+	ret(x, y) = Halide::select(f(x, y) > mean_norm(x, y),
+		Halide::cast(type, 1), Halide::cast(type, 0));
 	return ret;
 }
 

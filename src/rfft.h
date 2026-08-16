@@ -233,37 +233,6 @@ Halide::Func irfft2d(Halide::Func input, int rows, int cols, std::string const& 
 // Frequency Utilities
 // -----------------------------------------------------------------------------
 
-/// @brief Generate DFT sample frequencies
-/// @param N Window length
-/// @param d Sample spacing (default 1.0)
-/// @param name Function name
-/// @return 1D Func: even N -> [0, 1, ..., N/2-1, -N/2, ..., -1] / (N*d);
-///         odd N -> [0, 1, ..., (N-1)/2, -(N-1)/2, ..., -1] / (N*d)
-///
-/// Equivalent to numpy.fft.fftfreq. Returns the frequency bin centers
-/// in cycles per unit of the sample spacing. The positive branch runs
-/// through (N-1)//2 — i.e. the select boundary is (N+1)/2, NOT N/2
-/// (they differ for odd N; N/2 mis-signed bin k=(N-1)/2).
-inline
-Halide::Func fftfreq(int N, float d = 1.0f, std::string const& name = "fftfreq")
-{
-	nh_require(N > 0, "fftfreq requires N > 0, got %d", N);
-
-	Halide::Func ret(name);
-	Halide::Var x;
-
-	int half = (N + 1) / 2;
-	// For x in [0, half-1]: freq = x / (N*d)
-	// For x in [half, N-1]: freq = (x - N) / (N*d)
-	ret(x) = Halide::select(
-		x < half,
-		Halide::cast<float>(x),
-		Halide::cast<float>(x - N)
-	) / (N * d);
-
-	return ret;
-}
-
 /// @brief fftfreq with RUNTIME size and spacing
 /// @param n Window length as a runtime expression (integer)
 /// @param d Sample spacing as a runtime expression
@@ -292,26 +261,27 @@ Halide::Func fftfreq(Halide::Expr n, Halide::Expr d, Halide::Type type,
 	return ret;
 }
 
-/// @brief Generate DFT sample frequencies for rfft
+/// @brief Generate DFT sample frequencies (compile-time size, f32 values)
 /// @param N Window length
 /// @param d Sample spacing (default 1.0)
 /// @param name Function name
-/// @return 1D Func of size N/2+1: [0, 1, 2, ..., N/2] / (N*d)
+/// @return 1D Func: even N -> [0, 1, ..., N/2-1, -N/2, ..., -1] / (N*d);
+///         odd N -> [0, 1, ..., (N-1)/2, -(N-1)/2, ..., -1] / (N*d)
 ///
-/// Equivalent to numpy.fft.rfftfreq. Returns the frequency bin centers
-/// for the positive half of the spectrum only.
+/// Equivalent to numpy.fft.fftfreq. Returns the frequency bin centers
+/// in cycles per unit of the sample spacing. The positive branch runs
+/// through (N-1)//2 — i.e. the select boundary is (N+1)/2, NOT N/2
+/// (they differ for odd N; N/2 mis-signed bin k=(N-1)/2).
+///
+/// This is a value-generator with no input Func, so its type cannot be
+/// inferred: it delegates to the typed runtime overload above at
+/// Float(32) (value-identical to the historical f32 body). For f64
+/// frequencies call that overload with Halide::Float(64).
 inline
-Halide::Func rfftfreq(int N, float d = 1.0f, std::string const& name = "rfftfreq")
+Halide::Func fftfreq(int N, float d = 1.0f, std::string const& name = "fftfreq")
 {
-	nh_require(N > 0, "rfftfreq requires N > 0, got %d", N);
-
-	Halide::Func ret(name);
-	Halide::Var x;
-
-	// Simply: freq[k] = k / (N*d) for k in [0, N/2]
-	ret(x) = Halide::cast<float>(x) / (N * d);
-
-	return ret;
+	nh_require(N > 0, "fftfreq requires N > 0, got %d", N);
+	return fftfreq(Halide::Expr(N), Halide::Expr(d), Halide::Float(32), name);
 }
 
 /// @brief rfftfreq with RUNTIME size and spacing
@@ -335,6 +305,25 @@ Halide::Func rfftfreq(Halide::Expr n, Halide::Expr d, Halide::Type type,
 	ret(k) = Halide::cast(type, k) / (Halide::cast(type, n) * Halide::cast(type, d));
 
 	return ret;
+}
+
+/// @brief Generate DFT sample frequencies for rfft (compile-time size, f32 values)
+/// @param N Window length
+/// @param d Sample spacing (default 1.0)
+/// @param name Function name
+/// @return 1D Func of size N/2+1: [0, 1, 2, ..., N/2] / (N*d)
+///
+/// Equivalent to numpy.fft.rfftfreq. Returns the frequency bin centers
+/// for the positive half of the spectrum only.
+///
+/// Value-generator with no input Func: delegates to the typed runtime
+/// overload above at Float(32) (value-identical to the historical f32
+/// body). For f64 frequencies call that overload with Halide::Float(64).
+inline
+Halide::Func rfftfreq(int N, float d = 1.0f, std::string const& name = "rfftfreq")
+{
+	nh_require(N > 0, "rfftfreq requires N > 0, got %d", N);
+	return rfftfreq(Halide::Expr(N), Halide::Expr(d), Halide::Float(32), name);
 }
 
 NS_NUM_HALIDE_END
