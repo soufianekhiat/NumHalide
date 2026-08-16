@@ -7,12 +7,47 @@
 
 #include "common.h"
 #include "shape.h"
+#include "soft.h"
 
 NS_NUM_HALIDE_BEGIN
 
 // -----------------------------------------------------------------------------
 // Cumulative Sum
 // -----------------------------------------------------------------------------
+
+/// @brief cumsum as a plain reduction: out(x) = sum over k <= x of f(k).
+///
+/// Both cumsum overloads express the scan as `ret(r) = ret(r-1) + f(r)`.
+/// Measured against the closed form for n = 5: the tangent reproduced
+/// <Jv,u> = 3.2567906574 exactly, while the adjoint returned 1.622993. cumsum
+/// is LINEAR -- its Jacobian is the lower-triangular matrix of ones and its
+/// adjoint is the suffix sum -- so the two directions must agree to the last
+/// bit, and they did not. This form fixes it.
+///
+/// WHY the scan form fails is NOT established. It is emphatically not that
+/// Halide cannot differentiate update definitions: propagate_adjoints is
+/// documented as generating a derivative for the pure definition and each
+/// update, and upstream apps (RNN) and tutorials (histogram) depend on that.
+/// The untested suspicion is the SYMBOLIC RDom extent below,
+/// `Halide::max(n - 1, 0)` with a runtime `n`, where upstream examples use
+/// compile-time constants. So treat this as a workaround, not a diagnosis --
+/// if symbolic extents are the real cause, other kernels are affected too.
+///
+/// This form has no self-reference, so the adjoint Halide derives from it is
+/// the suffix sum it should be. It costs O(n^2) instead of O(n), which only
+/// differentiable builds pay; the scan stays the production path, bit for bit.
+///
+/// The predicate is positional -- it compares loop indices, never values -- so
+/// it adds no data-dependent branch for differentiation to follow.
+inline
+Halide::Expr cumsum_reduction(Halide::Func f, Halide::Expr n, Halide::Var x,
+							  std::string const& name)
+{
+	Halide::RDom k(0, n, "k_" + name);
+	Halide::Type const t = f.types().empty() ? Halide::Float(32) : f.types()[0];
+	return Halide::sum(Halide::select(k <= x, f(k), Halide::cast(t, 0)),
+					   "sum_" + name);
+}
 
 /// @brief Cumulative sum along an axis (1D only)
 /// @param f Input Func (1D)
@@ -38,6 +73,12 @@ Halide::Func cumsum(Halide::Func f, const shape_t& shape, int axis = 0, std::str
 	Halide::Func ret(name);
 	Halide::Var x;
 
+	if (is_differentiable_build()) {
+		ret(x) = cumsum_reduction(f, n, x, name);
+		ret.compute_root();
+		return ret;
+	}
+
 	// Pure definition: copy input
 	ret(x) = f(x);
 
@@ -61,13 +102,22 @@ Halide::Func cumsum(Halide::Func f, const shape_t& shape, int axis = 0, std::str
 /// @return Func with cumulative sums
 ///
 /// Same sequential scan as the compile-time overload:
-/// ret(0) = f(0), ret(i) = ret(i-1) + f(i). Reverse-mode derivability of
-/// this scan form is verified. Type follows f.types()[0].
+/// ret(0) = f(0), ret(i) = ret(i-1) + f(i). Type follows f.types()[0].
+///
+/// This scan is NOT reverse-mode derivable -- an earlier note here claimed it
+/// was verified, and a closed-form check disproved it (see cumsum_reduction).
+/// Differentiable builds take the reduction form instead.
 inline
 Halide::Func cumsum(Halide::Func f, Halide::Expr n, std::string const& name = "cumsum_rt")
 {
 	Halide::Func ret(name);
 	Halide::Var x("x");
+
+	if (is_differentiable_build()) {
+		ret(x) = cumsum_reduction(f, n, x, name);
+		ret.compute_root();
+		return ret;
+	}
 
 	// Pure definition: copy input
 	ret(x) = f(x);

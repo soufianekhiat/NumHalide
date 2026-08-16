@@ -7,6 +7,7 @@
 
 #include "common.h"
 #include "shape.h"
+#include "soft.h"
 
 NS_NUM_HALIDE_BEGIN
 
@@ -400,11 +401,58 @@ Halide::Func trace(Halide::Func mat, Halide::Expr n, std::string const& name = "
 	return ret;
 }
 
+/// @brief Extract the diagonal of a matrix, given the diagonal's length
+/// @param mat Matrix (M x N)
+/// @param n Length of the diagonal, min(M, N), as a runtime expression
+/// @param name Function name
+/// @return Diagonal as 1D vector (n)
+///
+/// REPEATED INDICES DEFEAT REVERSE MODE, which is why this overload exists:
+/// the differentiable form needs an extent and `shape_t` cannot be trusted to
+/// carry one (its `extents` default to 1, so a rank-only shape_t silently
+/// reports a one-element diagonal).
+///
+/// `mat(x, x)` names the same variable twice, and propagate_adjoints does not
+/// constrain the second index to the first -- it scatters the output adjoint
+/// across the WHOLE ROW. Measured against the closed form: the true inner
+/// product is 1.1482093425605537 and the adjoint returned 5.642586505190311,
+/// which is exactly sum_k u[k] * (sum of row k). diag is a pure selection, so
+/// the two directions must agree exactly, and they did not.
+///
+/// Selecting the diagonal out of a reduction over a DISTINCT index says the
+/// same thing in a form reverse mode can read. O(n) per output instead of
+/// O(1), paid only by differentiable builds; the exact path is untouched.
+inline
+Halide::Func diag(Halide::Func mat, Halide::Expr n, std::string const& name = "diag")
+{
+	Halide::Func ret(name);
+	Halide::Var x("x");
+
+	if (is_differentiable_build()) {
+		Halide::RDom r(0, n, "r_" + name);
+		Halide::Type const t =
+			mat.types().empty() ? Halide::Float(32) : mat.types()[0];
+		ret(x) = Halide::sum(
+			Halide::select(r == x, mat(x, r), Halide::cast(t, 0)),
+			"sum_" + name);
+		return ret;
+	}
+
+	// mat(col, row) -> diagonal is mat(i, i)
+	ret(x) = mat(x, x);
+
+	return ret;
+}
+
 /// @brief Extract the diagonal of a matrix
 /// @param mat Matrix (M x N)
 /// @param shape_mat Shape of matrix
 /// @param name Function name
 /// @return Diagonal as 1D vector (min(M, N))
+///
+/// Prefer the extent-taking overload above in any pipeline that will be
+/// differentiated: this one keeps the repeated-index form, whose adjoint is
+/// wrong, because a rank-only shape_t carries no usable extent.
 inline
 Halide::Func diag(Halide::Func mat, const shape_t& shape_mat, std::string const& name = "diag")
 {
