@@ -13,7 +13,17 @@ if(Halide_FOUND)
     return()
 endif()
 
-set(_HALIDE_ROOT "${CMAKE_SOURCE_DIR}/extern/Halide")
+# HALIDE_ROOT overrides the vendored location, so a consumer that already has a
+# Halide drop can build these tests against THAT ONE rather than a second copy.
+# Testing against a different Halide than the caller ships is how a difference
+# between the two goes unnoticed.
+if(DEFINED HALIDE_ROOT)
+    set(_HALIDE_ROOT "${HALIDE_ROOT}")
+elseif(DEFINED ENV{HALIDE_ROOT})
+    set(_HALIDE_ROOT "$ENV{HALIDE_ROOT}")
+else()
+    set(_HALIDE_ROOT "${CMAKE_SOURCE_DIR}/extern/Halide")
+endif()
 
 find_path(Halide_INCLUDE_DIR
     NAMES Halide.h
@@ -27,9 +37,11 @@ find_library(Halide_LIBRARY
     NO_DEFAULT_PATH
 )
 
+# bin/ as well as bin/RelWithDebInfo: an installed Halide puts the DLL directly
+# in bin/, a build tree puts it under the config name.
 find_file(Halide_DLL
     NAMES Halide.dll
-    PATHS "${_HALIDE_ROOT}/bin/RelWithDebInfo"
+    PATHS "${_HALIDE_ROOT}/bin/RelWithDebInfo" "${_HALIDE_ROOT}/bin"
     NO_DEFAULT_PATH
 )
 
