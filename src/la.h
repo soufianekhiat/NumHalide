@@ -1498,6 +1498,15 @@ struct SVDResult {
 /// Convergence: off-diagonal entries of W^T W → 0.
 /// Computes in A's element type (f32, f64, ...).
 /// Note: internally creates O(n_sweeps * n²) compute_root stages; keep n ≤ 8.
+///
+/// SWEEPS NEEDED GROW WITH n, and under-converging is silent: the
+/// RECONSTRUCTION A ≈ U S Vt stays accurate while U and Vt lose orthogonality,
+/// so a test that only checks reconstruction passes on a factorization whose
+/// factors are not orthogonal. Measured in f32 against random 4x4 matrices:
+///   n = 3, 4 sweeps  ->  ||U^T U - I|| ~ 1e-7
+///   n = 4, 3 sweeps  ->  ||U^T U - I|| ~ 1.4e-4   (insufficient)
+///   n = 4, 6 sweeps  ->  ||U^T U - I|| ~ 1.5e-7
+/// Check orthogonality, not just reconstruction, when choosing this.
 inline SVDResult svd_jacobi(Halide::Func A, int m, int n,
     int n_sweeps = 10, std::string const& name = "svd")
 {
