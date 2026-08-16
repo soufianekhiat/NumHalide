@@ -195,8 +195,8 @@ TEST(SVDJacobi, Convergence4x4) {
 				vvt += static_cast<double>(Vt(k, i)) * static_cast<double>(Vt(k, j));
 			}
 			double expected = (i == j) ? 1.0 : 0.0;
-			EXPECT_NEAR(utu, expected, 1e-3) << "U^T*U at (" << i << "," << j << ")";
-			EXPECT_NEAR(vvt, expected, 1e-3) << "Vt*Vt^T at (" << i << "," << j << ")";
+			EXPECT_NEAR(utu, expected, 1e-6) << "U^T*U at (" << i << "," << j << ")";
+			EXPECT_NEAR(vvt, expected, 1e-6) << "Vt*Vt^T at (" << i << "," << j << ")";
 		}
 	}
 
@@ -213,4 +213,86 @@ TEST(SVDJacobi, Convergence4x4) {
 	EXPECT_GE(S(1), S(2));
 	EXPECT_GE(S(2), S(3));
 	EXPECT_GE(S(3), 0.0f);
+}
+
+/// SWEEPS NEEDED GROW WITH n, and under-convergence is SILENT: reconstruction
+/// A ~ U S Vt stays accurate while U and Vt lose orthogonality, so a test that
+/// checks only reconstruction passes on a factorization whose factors are not
+/// orthogonal.
+///
+/// This is how a caller shipped 4x4 SVD at three sweeps with ||U^T U - I|| at
+/// 1.4e-4 while every other forward in that package verified at ~1e-7. It went
+/// unnoticed because the reconstruction check it had was fine.
+///
+/// SWEEPS SUFFICIENT FOR ONE MATRIX ARE NOT SUFFICIENT FOR ALL. On this file's
+/// own fixture4, three sweeps already reaches 7.7e-8 -- so a test built on that
+/// matrix reports convergence that other inputs do not get. Measured across
+/// several matrices, three sweeps reaches only ~1e-4 on the worst of them while
+/// six stays at ~1e-7.
+///
+/// So this sweeps a SPREAD of deterministic matrices and asserts the thing that
+/// has to hold for a caller choosing a sweep count: six sweeps delivers
+/// f32-grade orthogonality on ALL of them. The three-sweep figure is reported
+/// rather than asserted, because how bad it gets is a property of the input.
+TEST(SVDJacobi, SixSweepsOrthogonalOnHarderInputs4x4) {
+	// A small deterministic LCG, so the fixtures vary without depending on the
+	// platform's random implementation.
+	auto orthogonality_error = [](int sweeps) -> double {
+		double worst_all = 0.0;
+		uint32_t seed = 12345u;
+		auto next = [&seed]() -> float {
+			seed = seed * 1664525u + 1013904223u;
+			return static_cast<float>((seed >> 8) & 0xFFFF) / 32768.0f - 1.0f;
+		};
+
+		for (int trial = 0; trial < 6; ++trial) {
+			Halide::Buffer<float> abuf(4, 4);
+			for (int r = 0; r < 4; ++r)
+				for (int c = 0; c < 4; ++c)
+					abuf(c, r) = next();
+			// Diagonally dominant: well conditioned, so what is measured is
+			// convergence rather than the conditioning of a near-singular draw.
+			for (int r = 0; r < 4; ++r) {
+				float row = 0.0f;
+				for (int c = 0; c < 4; ++c)
+					if (c != r) row += std::abs(abuf(c, r));
+				abuf(r, r) = row + 1.0f + 0.5f * static_cast<float>(r);
+			}
+
+		Halide::Func af("sw_af" + std::to_string(sweeps) + "_" +
+		                std::to_string(trial));
+		Halide::Var x, y;
+		af(x, y) = abuf(x, y);
+
+		auto svd = svd_jacobi(af, 4, 4, sweeps,
+		                      "svd4_sw" + std::to_string(sweeps) + "_" +
+		                          std::to_string(trial));
+		Halide::Buffer<float> U = svd.U.realize({4, 4});
+
+			for (int i = 0; i < 4; ++i) {
+				for (int j = 0; j < 4; ++j) {
+					double utu = 0.0;
+					for (int k = 0; k < 4; ++k)
+						utu += static_cast<double>(U(i, k)) *
+						       static_cast<double>(U(j, k));
+					double const expected = (i == j) ? 1.0 : 0.0;
+					worst_all = std::max(worst_all, std::abs(utu - expected));
+				}
+			}
+		}
+		return worst_all;
+	};
+
+	double const at3 = orthogonality_error(3);
+	double const at6 = orthogonality_error(6);
+
+	std::cout << "[sweeps] worst ||U^T U - I|| over 6 matrices: 3 sweeps "
+	          << at3 << ", 6 sweeps " << at6 << std::endl;
+
+	// The only assertion, because it is the only part that must hold for every
+	// input: six sweeps is enough. How far short three falls depends on the
+	// matrix, so it is reported and not asserted.
+	EXPECT_LT(at6, 1e-5)
+		<< "six sweeps must reach f32-grade orthogonality at n=4 on every one "
+		   "of these matrices";
 }

@@ -1499,14 +1499,21 @@ struct SVDResult {
 /// Computes in A's element type (f32, f64, ...).
 /// Note: internally creates O(n_sweeps * n²) compute_root stages; keep n ≤ 8.
 ///
-/// SWEEPS NEEDED GROW WITH n, and under-converging is silent: the
-/// RECONSTRUCTION A ≈ U S Vt stays accurate while U and Vt lose orthogonality,
-/// so a test that only checks reconstruction passes on a factorization whose
-/// factors are not orthogonal. Measured in f32 against random 4x4 matrices:
-///   n = 3, 4 sweeps  ->  ||U^T U - I|| ~ 1e-7
-///   n = 4, 3 sweeps  ->  ||U^T U - I|| ~ 1.4e-4   (insufficient)
-///   n = 4, 6 sweeps  ->  ||U^T U - I|| ~ 1.5e-7
-/// Check orthogonality, not just reconstruction, when choosing this.
+/// SWEEPS NEEDED GROW WITH n AND WITH THE INPUT, and under-converging is
+/// silent twice over:
+///
+///  - The RECONSTRUCTION A ≈ U S Vt stays accurate while U and Vt lose
+///    orthogonality, so a test that only checks reconstruction passes on a
+///    factorization whose factors are not orthogonal.
+///  - How many sweeps suffice DEPENDS ON THE MATRIX. At n = 4 in f32, three
+///    sweeps reaches 7.7e-8 on this suite's own fixture4 and only 8.8e-5 on
+///    the worst of six diagonally-dominant random matrices; six sweeps holds
+///    1.6e-7 across all of them. A single easy fixture therefore reports a
+///    convergence other inputs do not get -- see
+///    SVDJacobi.SixSweepsOrthogonalOnHarderInputs4x4.
+///
+/// So: n = 4 wants 6, n = 3 wants 4, and orthogonality is the property to
+/// measure when choosing -- not reconstruction, and not one matrix.
 inline SVDResult svd_jacobi(Halide::Func A, int m, int n,
     int n_sweeps = 10, std::string const& name = "svd")
 {
