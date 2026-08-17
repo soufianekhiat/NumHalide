@@ -315,3 +315,78 @@ TEST(FFT, RealToComplex) {
         EXPECT_NEAR(im_out(i), 0.0f, 1e-5f);
     }
 }
+
+// -----------------------------------------------------------------------------
+// Real-input transforms with a HALF spectrum (numpy rfft / irfft semantics)
+// -----------------------------------------------------------------------------
+//
+// dft_1d applied to real input returns ALL n bins; rdft/irdft use the n/2+1 the
+// Hermitian symmetry makes independent. Both contracts are valid and they are
+// NOT interchangeable -- their adjoints differ by a factor of 2 on every bin
+// that stands for a conjugate pair. These pin the half-spectrum one.
+
+TEST(FFTReal, IrfftRoundtrip1D) {
+	const int N = 8;
+	Halide::Buffer<float> sig(N);
+	for (int i = 0; i < N; ++i)
+		sig(i) = std::sin(0.7f * i) + 0.3f * std::cos(2.1f * i) + 0.1f * i;
+
+	Halide::Var i;
+	Halide::Func in("rt_in");
+	in(i) = sig(i);
+
+	Halide::Func half = rdft_1d(in, N, Halide::Float(32), "rt_half");
+	Halide::Func back = irdft_1d_normalized(half, N, Halide::Float(32), "rt_back");
+
+	Halide::Buffer<float> out = back.realize({N});
+	for (int k = 0; k < N; ++k)
+		EXPECT_NEAR(out(k), sig(k), 1e-4) << "roundtrip at " << k;
+}
+
+// The half spectrum must agree with the full DFT on the bins it keeps -- that
+// is what makes it a HALF spectrum rather than a different transform.
+TEST(FFTReal, HalfSpectrumMatchesFullDft1D) {
+	const int N = 8;
+	Halide::Buffer<float> sig(N);
+	for (int i = 0; i < N; ++i) sig(i) = std::cos(1.3f * i) - 0.4f * i;
+
+	Halide::Var i;
+	Halide::Func in("hs_in");
+	in(i) = sig(i);
+
+	Halide::Func packed("hs_packed");
+	packed(i) = complex(in(i), Halide::Expr(0.0f));
+	Halide::Func full = dft_1d(packed, N, -1, Halide::Float(32), "hs_full");
+	Halide::Func half = rdft_1d(in, N, Halide::Float(32), "hs_half");
+
+	Halide::Realization fr = full.realize({N});
+	Halide::Realization hr = half.realize({N / 2 + 1});
+	Halide::Buffer<float> fre = fr[0], fim = fr[1];
+	Halide::Buffer<float> hre = hr[0], him = hr[1];
+
+	for (int k = 0; k <= N / 2; ++k) {
+		EXPECT_NEAR(hre(k), fre(k), 1e-4) << "re bin " << k;
+		EXPECT_NEAR(him(k), fim(k), 1e-4) << "im bin " << k;
+	}
+}
+
+TEST(FFTReal, IrfftRoundtrip2D) {
+	const int W = 4, H = 4;
+	Halide::Buffer<float> img(W, H);
+	for (int y = 0; y < H; ++y)
+		for (int x = 0; x < W; ++x)
+			img(x, y) = std::sin(0.9f * x) * std::cos(0.6f * y) + 0.2f * (x + y);
+
+	Halide::Var x, y;
+	Halide::Func in("rt2_in");
+	in(x, y) = img(x, y);
+
+	Halide::Func half = rdft_2d(in, W, H, Halide::Float(32), "rt2_half");
+	Halide::Func back = irdft_2d_normalized(half, W, H, Halide::Float(32), "rt2_back");
+
+	Halide::Buffer<float> out = back.realize({W, H});
+	for (int yy = 0; yy < H; ++yy)
+		for (int xx = 0; xx < W; ++xx)
+			EXPECT_NEAR(out(xx, yy), img(xx, yy), 1e-3)
+				<< "roundtrip at (" << xx << "," << yy << ")";
+}
