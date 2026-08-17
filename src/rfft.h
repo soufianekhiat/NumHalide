@@ -208,6 +208,8 @@ Halide::Func rfft2d(Halide::Func input, int rows, int cols, std::string const& n
 /// @brief Inverse real 2D FFT
 /// @param input Complex 2D Func (FULL spectrum — no conjugate-symmetry
 ///        mirror reads, so no half-spectrum bounds concern here)
+/// @note Despite the name, this is NOT numpy's irfft2, which consumes a half
+///       spectrum. For that contract use irfft2d_half below.
 /// @param rows Number of rows (any size — the underlying c2c form is a
 ///        direct DFT)
 /// @param cols Number of columns (any size)
@@ -227,6 +229,99 @@ Halide::Func irfft2d(Halide::Func input, int rows, int cols, std::string const& 
 	Halide::Var x, y;
 	ret(x, y) = result(x, y)[0];
 	return ret;
+}
+
+/// @brief Real-input 2D DFT with RUNTIME sizes
+/// @param real_in Real-valued 2D Func (not Tuple)
+/// @param w Width as a runtime expression
+/// @param h Height as a runtime expression
+/// @param type Floating-point type to compute in
+/// @param name Function name
+/// @return Complex 2D Func; caller reads bins x in [0, w/2+1), y in [0, h)
+///
+/// Runtime-size counterpart of rfft2d(Func, int, int) above, and it keeps that
+/// overload's contract exactly: the Func is defined for every x, and the half
+/// spectrum is what the CALLER chooses to realize. Same relationship as
+/// rfft(Func, int) to rfft(Func, Expr, Type).
+inline
+Halide::Func rfft2d(Halide::Func real_in, Halide::Expr w, Halide::Expr h,
+                    Halide::Type type, std::string const& name = "rfft2d_rt")
+{
+	nh_require(type.is_float(), "rfft2d compute type must be a float type");
+
+	Halide::Var x("x"), y("y");
+	Halide::Func packed(name + "_packed");
+	packed(x, y) = complex(Halide::cast(type, real_in(x, y)),
+	                       Halide::Internal::make_zero(type));
+	packed.compute_root();
+
+	return dft_2d(packed, w, h, -1, type, name);
+}
+
+/// @brief Inverse 2D real FFT from a HALF spectrum (numpy irfft2 semantics)
+/// @param half Complex 2D Func holding bins x in [0, w/2], y in [0, h)
+/// @param w Width of the RESULT as a runtime expression
+/// @param h Height of the RESULT as a runtime expression
+/// @param type Floating-point type to compute in
+/// @param name Function name
+/// @return Real-valued 2D Func of size w x h, normalized by 1/(w*h)
+///
+/// NOT an overload of irfft2d(Func, int, int): that one consumes a FULL
+/// spectrum (see its doc), and giving the same name two different contracts
+/// would let a caller silently get the wrong transform. The distinction
+/// matters beyond the forward value -- the adjoint of THIS form carries a
+/// factor of 2 on every bin standing for a conjugate pair it does not store,
+/// and the full form's adjoint does not.
+///
+/// Hermitian symmetry in 2-D pairs (kx, ky) with (w-kx, h-ky) -- BOTH axes
+/// wrap, not just the halved one. Mirroring only x is the obvious mistake here
+/// and it yields a plausible image with a wrong imaginary cancellation.
+///
+/// THE MIRROR INDEX IS CLAMPED, and that is not defensive noise. A select does
+/// NOT restrict bounds in Halide: both arms are evaluated over the whole
+/// domain, so an unclamped mirror makes Halide demand `half` over all of
+/// [0, w) -- reading past the w/2+1 bins the caller actually has. Under
+/// no_bounds_query that returns adjacent heap rather than faulting.
+inline
+Halide::Func irfft2d_half(Halide::Func half, Halide::Expr w, Halide::Expr h,
+                          Halide::Type type,
+                          std::string const& name = "irfft2d_half")
+{
+	nh_require(type.is_float(), "irfft2d_half compute type must be a float type");
+
+	Halide::Var x("x"), y("y");
+	Halide::RDom r(0, w, 0, h, name + "_r");
+
+	Halide::Expr half_w = w / 2;
+	Halide::Expr use_conj = r.x > half_w;
+
+	Halide::Expr sx = Halide::clamp(
+		Halide::select(use_conj, w - r.x, r.x), 0, half_w);
+	// The y mirror only applies on the conjugated half, and 0 maps to 0.
+	Halide::Expr sy = Halide::clamp(
+		Halide::select(use_conj, Halide::select(r.y == 0, 0, h - r.y), r.y),
+		0, h - 1);
+
+	Halide::Expr conj_sign =
+		Halide::select(use_conj, Halide::Internal::make_const(type, -1.0),
+		               Halide::Internal::make_one(type));
+
+	Halide::Tuple xk = complex(Halide::cast(type, half(sx, sy)[0]),
+	                           conj_sign * Halide::cast(type, half(sx, sy)[1]));
+
+	Halide::Expr two_pi = Halide::Internal::make_const(type, 2.0 * M_PI);
+	Halide::Expr angle = two_pi *
+		(Halide::cast(type, x) * Halide::cast(type, r.x) / Halide::cast(type, w)
+	   + Halide::cast(type, y) * Halide::cast(type, r.y) / Halide::cast(type, h));
+
+	Halide::Tuple prod = complex_mul(xk, expj(angle));
+
+	Halide::Func result(name);
+	result(x, y) = Halide::sum(prod[0]) /
+	               (Halide::cast(type, w) * Halide::cast(type, h));
+	result.compute_root();  // reduction — chaining rule
+
+	return result;
 }
 
 // -----------------------------------------------------------------------------

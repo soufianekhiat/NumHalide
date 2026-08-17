@@ -309,3 +309,128 @@ TEST(RfftRuntime, SpectralCentroidMagnitude) {
 	Halide::Buffer<float> outz = wrapz.realize({1});
 	EXPECT_NEAR(outz(0), 0.0f, 1e-6f);
 }
+
+// -----------------------------------------------------------------------------
+// 2-D real FFT with RUNTIME sizes, and the HALF-spectrum inverse
+// -----------------------------------------------------------------------------
+//
+// rfft2d(Func, int, int) and irfft2d(Func, int, int) above are compile-time
+// sized, and irfft2d consumes a FULL spectrum. These cover the two additions:
+// a runtime-Expr rfft2d, and irfft2d_half, which consumes only the w/2+1 bins
+// numpy's irfft2 does. The contracts are NOT interchangeable, so the pair is
+// pinned both by round-trip and by agreement with the full transform.
+
+TEST(RFFTRuntime, Rfft2dRuntimeMatchesFullDft2d) {
+	int const W = 4, H = 4;
+	Halide::Buffer<float> img(W, H);
+	for (int y = 0; y < H; ++y)
+		for (int x = 0; x < W; ++x)
+			img(x, y) = std::cos(1.3f * x) - 0.4f * y + 0.25f * x * y;
+
+	Halide::Var x, y;
+	Halide::Func in("r2m_in");
+	in(x, y) = img(x, y);
+
+	Halide::Func packed("r2m_packed");
+	packed(x, y) = complex(in(x, y), Halide::Expr(0.0f));
+	Halide::Func full = dft_2d(packed, W, H, -1, Halide::Float(32), "r2m_full");
+	Halide::Func half = rfft2d(in, Halide::Expr(W), Halide::Expr(H),
+			Halide::Float(32), "r2m_half");
+
+	Halide::Realization fr = full.realize({W, H});
+	Halide::Realization hr = half.realize({W / 2 + 1, H});
+	Halide::Buffer<float> fre = fr[0], fim = fr[1];
+	Halide::Buffer<float> hre = hr[0], him = hr[1];
+
+	// Agreement on the bins the half spectrum keeps is what makes it a HALF
+	// spectrum rather than some other transform.
+	for (int yy = 0; yy < H; ++yy)
+		for (int kx = 0; kx <= W / 2; ++kx) {
+			EXPECT_NEAR(hre(kx, yy), fre(kx, yy), 1e-4) << "re (" << kx << "," << yy << ")";
+			EXPECT_NEAR(him(kx, yy), fim(kx, yy), 1e-4) << "im (" << kx << "," << yy << ")";
+		}
+}
+
+TEST(RFFTRuntime, Irfft2dHalfRoundtrip) {
+	int const W = 4, H = 4;
+	Halide::Buffer<float> img(W, H);
+	for (int y = 0; y < H; ++y)
+		for (int x = 0; x < W; ++x)
+			img(x, y) = std::sin(0.9f * x) * std::cos(0.6f * y) + 0.2f * (x + y);
+
+	Halide::Var x, y;
+	Halide::Func in("i2h_in");
+	in(x, y) = img(x, y);
+
+	Halide::Func half = rfft2d(in, Halide::Expr(W), Halide::Expr(H),
+			Halide::Float(32), "i2h_half");
+	Halide::Func back = irfft2d_half(half, Halide::Expr(W), Halide::Expr(H),
+			Halide::Float(32), "i2h_back");
+
+	Halide::Buffer<float> out = back.realize({W, H});
+	for (int yy = 0; yy < H; ++yy)
+		for (int xx = 0; xx < W; ++xx)
+			EXPECT_NEAR(out(xx, yy), img(xx, yy), 1e-3)
+				<< "roundtrip at (" << xx << "," << yy << ")";
+}
+
+// The y mirror is the easy half of Hermitian symmetry to get wrong: pairing
+// (kx,ky) with (w-kx, ky) instead of (w-kx, h-ky) still round-trips on inputs
+// that happen to be y-symmetric. This input is not.
+TEST(RFFTRuntime, Irfft2dHalfRoundtripAsymmetricInY) {
+	int const W = 6, H = 4;
+	Halide::Buffer<float> img(W, H);
+	for (int y = 0; y < H; ++y)
+		for (int x = 0; x < W; ++x)
+			img(x, y) = std::sin(1.7f * y + 0.4f) * (1.0f + 0.3f * x)
+			          + 0.9f * std::cos(2.3f * y);
+
+	Halide::Var x, y;
+	Halide::Func in("i2a_in");
+	in(x, y) = img(x, y);
+
+	Halide::Func half = rfft2d(in, Halide::Expr(W), Halide::Expr(H),
+			Halide::Float(32), "i2a_half");
+	Halide::Func back = irfft2d_half(half, Halide::Expr(W), Halide::Expr(H),
+			Halide::Float(32), "i2a_back");
+
+	Halide::Buffer<float> out = back.realize({W, H});
+	for (int yy = 0; yy < H; ++yy)
+		for (int xx = 0; xx < W; ++xx)
+			EXPECT_NEAR(out(xx, yy), img(xx, yy), 1e-3)
+				<< "roundtrip at (" << xx << "," << yy << ")";
+}
+
+// Realize the half spectrum into buffers holding EXACTLY w/2+1 bins, then
+// invert. If the mirror index were unclamped, bounds inference would demand
+// w columns from a w/2+1 buffer -- the trap a select does not protect against.
+TEST(RFFTRuntime, Irfft2dHalfReadsOnlyTheHalfSpectrum) {
+	int const W = 6, H = 4;
+	int const K = W / 2 + 1;
+	Halide::Buffer<float> img(W, H);
+	for (int y = 0; y < H; ++y)
+		for (int x = 0; x < W; ++x)
+			img(x, y) = 0.5f * x - 0.75f * y + std::sin(0.8f * x * y);
+
+	Halide::Var x, y;
+	Halide::Func in("i2b_in");
+	in(x, y) = img(x, y);
+
+	Halide::Func spec = rfft2d(in, Halide::Expr(W), Halide::Expr(H),
+			Halide::Float(32), "i2b_spec");
+	Halide::Realization sr = spec.realize({K, H});
+	Halide::Buffer<float> sre = sr[0], sim = sr[1];
+
+	// Concrete K-wide buffers: nothing beyond bin K-1 exists to read.
+	Halide::Func bounded("i2b_bounded");
+	bounded(x, y) = complex(sre(x, y), sim(x, y));
+
+	Halide::Func back = irfft2d_half(bounded, Halide::Expr(W), Halide::Expr(H),
+			Halide::Float(32), "i2b_back");
+
+	Halide::Buffer<float> out = back.realize({W, H});
+	for (int yy = 0; yy < H; ++yy)
+		for (int xx = 0; xx < W; ++xx)
+			EXPECT_NEAR(out(xx, yy), img(xx, yy), 1e-3)
+				<< "at (" << xx << "," << yy << ")";
+}
